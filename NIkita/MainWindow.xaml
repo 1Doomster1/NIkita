@@ -22,12 +22,25 @@
                     <ColumnDefinition/>
                     <ColumnDefinition Width="0.15*"/>
                 </Grid.ColumnDefinitions>
+                <TextBox x:Name="MyText" />
+                <Border Grid.Column="1" Margin="10" Background="#FF509ADA" CornerRadius="10" >
+                    <Button Margin="3" Background="#FF509ADA" Content="Send" BorderBrush="#FF509ADA"/>
+                </Border>
             </Grid>
             <Grid Grid.Row="1">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition/>
-                    <ColumnDefinition/>
-                </Grid.ColumnDefinitions>
+            <ListBox x:Name="YourMess" Grid.Column="1"
+                    ItemsSource="{Binding Messages}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel>
+                                <TextBlock FontSize="16" Text="{Binding Path=User}" TextAlignment="Center">
+                                <TextBlock  FontSize="16" Text="{Binding Path=Text}" />
+                            </TextBlock>
+                            <TextBlock FontSize="10" Text="{Binding Path=Date}"/>
+                            </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
             </Grid>
         </Grid>
         <ListBox Name="AllUsers"></ListBox>

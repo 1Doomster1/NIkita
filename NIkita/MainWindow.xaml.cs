@@ -13,9 +13,11 @@ namespace NIkita
 {
     public partial class MainWindow : Window
     {
+        Server.Server server = null;
         public MainWindow()
         {
             InitializeComponent();
+            DataContext = new AppViewModel();
         }
     }
 }
