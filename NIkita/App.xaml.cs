@@ -1,14 +1,22 @@
-﻿using System.Configuration;
-using System.Data;
+﻿using System;
 using System.Windows;
 
 namespace NIkita
 {
-    /// <summary>
-    /// Interaction logic for App.xaml
-    /// </summary>
     public partial class App : Application
     {
-    }
+        protected override void OnStartup(StartupEventArgs e)
+        {
+            base.OnStartup(e);
+        }
 
+        protected override void OnExit(ExitEventArgs e)
+        {
+            if (Application.Current.MainWindow.DataContext is MainViewModel vm)
+            {
+                vm.SaveChatHistory();
+            }
+            base.OnExit(e);
+        }
+    }
 }
