@@ -2,7 +2,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using NIkita;
 
 namespace NIkita
 {
@@ -12,7 +11,6 @@ namespace NIkita
         private string _name;
         private string _lastMessage;
         private DateTime _lastMessageTime;
-        private string _avatar;
         private bool _isOnline;
         private int _unreadCount;
 
@@ -40,12 +38,6 @@ namespace NIkita
             set { _lastMessageTime = value; OnPropertyChanged(); }
         }
 
-        public string Avatar
-        {
-            get { return _avatar; }
-            set { _avatar = value; OnPropertyChanged(); }
-        }
-
         public bool IsOnline
         {
             get { return _isOnline; }
@@ -60,8 +52,29 @@ namespace NIkita
 
         public ObservableCollection<Message> Messages { get; set; } = new ObservableCollection<Message>();
 
+        // Свойства для привязки без конвертеров
         public string LastMessageTimeString => LastMessageTime.ToString("HH:mm");
         public string LastMessageDateString => LastMessageTime.ToString("dd.MM");
+
+        public string OnlineStatus => IsOnline ? "online" : "offline";
+
+        public string Initials
+        {
+            get
+            {
+                if (!string.IsNullOrEmpty(Name))
+                {
+                    if (Name.Length >= 2)
+                    {
+                        return Name.Substring(0, 2).ToUpper();
+                    }
+                    return Name.ToUpper();
+                }
+                return "??";
+            }
+        }
+
+        public bool HasUnreadMessages => UnreadCount > 0;
 
         public event PropertyChangedEventHandler PropertyChanged;
 
