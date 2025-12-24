@@ -1,5 +1,9 @@
-﻿using System.ComponentModel;
+﻿using System;
+using System.ComponentModel;
+using System.IO;
 using System.Runtime.CompilerServices;
+using System.Windows;
+using System.Windows.Media;
 
 namespace NIkita
 {
@@ -76,8 +80,54 @@ namespace NIkita
             set { _imagePath = value; OnPropertyChanged(); }
         }
 
+        // Свойства для привязки без конвертеров
         public string TimeString => Timestamp.ToString("HH:mm");
         public string DateString => Timestamp.ToString("dd.MM.yyyy");
+
+        public string StatusIcon => Status switch
+        {
+            MessageStatus.Sent => "✓",
+            MessageStatus.Delivered => "✓✓",
+            MessageStatus.Read => "✓✓",
+            _ => ""
+        };
+
+        public Brush MessageForeground => IsMyMessage ? Brushes.White : Brushes.Black;
+
+        public bool IsTextType => Type == MessageType.Text;
+        public bool IsFileType => Type == MessageType.File;
+        public bool IsImageType => Type == MessageType.Image;
+
+        public string FileSize
+        {
+            get
+            {
+                if (!string.IsNullOrEmpty(ImagePath) && File.Exists(ImagePath))
+                {
+                    try
+                    {
+                        var info = new FileInfo(ImagePath);
+                        long bytes = info.Length;
+                        string[] sizes = { "B", "KB", "MB", "GB" };
+                        int order = 0;
+                        double len = bytes;
+
+                        while (len >= 1024 && order < sizes.Length - 1)
+                        {
+                            order++;
+                            len /= 1024;
+                        }
+
+                        return $"{len:0.#} {sizes[order]}";
+                    }
+                    catch
+                    {
+                        return "Неизвестно";
+                    }
+                }
+                return "Неизвестно";
+            }
+        }
 
         public event PropertyChangedEventHandler PropertyChanged;
 
