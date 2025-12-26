@@ -17,7 +17,8 @@ namespace NIkita
         public MainWindow()
         {
             InitializeComponent();
-            DataContext = new AppViewModel();
+            using var context = new NikitaDBContext();
+            DataContext = new AppViewModel(context);
         }
     }
 }

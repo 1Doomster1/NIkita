@@ -8,11 +8,12 @@ using System.Threading.Tasks;
 
 namespace NIkita
 {
-    internal class Message : INotifyPropertyChanged
+    public class Message : INotifyPropertyChanged
     {
         private string _text;
         private DateTime _date;
         private string _user;
+        public int Id { get; set; } 
         public string Text
         {
             get { return _text; }
