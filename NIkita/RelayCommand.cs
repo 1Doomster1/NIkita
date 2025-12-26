@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Windows.Input;
 
-namespace NIkita
+namespace NikitaMicrosoft
 {
     public class RelayCommand : ICommand
     {
