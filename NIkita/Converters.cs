@@ -4,8 +4,9 @@ using System.IO;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media;
+using NIkita;
 
-namespace NIkita
+namespace NikitaMicrosoft
 {
     public class MessageStatusConverter : IValueConverter
     {
@@ -30,8 +31,6 @@ namespace NIkita
         }
     }
 
-
-    //esggthgrsth
     public class BoolToVisibilityConverter : IValueConverter
     {
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
@@ -72,7 +71,6 @@ namespace NIkita
         }
     }
 
-    //ihvuygv
     public class InitialsConverter : IValueConverter
     {
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
@@ -94,7 +92,6 @@ namespace NIkita
         }
     }
 
-    //ugftyf
     public class FileSizeConverter : IValueConverter
     {
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
@@ -157,6 +154,79 @@ namespace NIkita
                 return isMyMessage ? MyMessageStyle : OtherMessageStyle;
             }
             return OtherMessageStyle;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            throw new NotImplementedException();
+        }
+    }
+
+    public class InverseBooleanToVisibilityConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value is bool b)
+            {
+                return b ? Visibility.Collapsed : Visibility.Visible;
+            }
+            return Visibility.Visible;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            throw new NotImplementedException();
+        }
+    }
+
+    public class MessageForegroundConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value is bool isMyMessage)
+            {
+                return isMyMessage ? Brushes.White : Brushes.Black;
+            }
+            return Brushes.Black;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            throw new NotImplementedException();
+        }
+    }
+
+    public class BoolToForegroundConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value is bool isMyMessage)
+            {
+                // Для своих сообщений - белый текст, для чужих - темный
+                return isMyMessage ? Brushes.White : Brushes.Black;
+            }
+
+            return Brushes.Black;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            throw new NotImplementedException();
+        }
+    }
+
+    public class FileBackgroundConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value is bool isMyMessage)
+            {
+                return isMyMessage ?
+                    new SolidColorBrush(Color.FromRgb(0, 116, 204)) :
+                    new SolidColorBrush(Color.FromRgb(245, 245, 245));
+            }
+
+            return new SolidColorBrush(Color.FromRgb(245, 245, 245));
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)

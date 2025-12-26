@@ -5,7 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Media;
 
-namespace NIkita
+namespace NikitaMicrosoft
 {
     public enum MessageType
     {
@@ -31,6 +31,13 @@ namespace NIkita
         private MessageType _type;
         private MessageStatus _status;
         private string _imagePath;
+        private string _filePath;
+
+        public string FilePath
+        {
+            get { return _filePath; }
+            set { _filePath = value; }
+        }
 
         public string Id
         {
