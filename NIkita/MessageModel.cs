@@ -1,5 +1,6 @@
 ﻿using System;
 using System.ComponentModel;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows;
@@ -33,6 +34,7 @@ namespace NikitaMicrosoft
         private string _imagePath;
         private string _filePath;
 
+        [NotMapped]
         public string FilePath
         {
             get { return _filePath; }
@@ -80,7 +82,7 @@ namespace NikitaMicrosoft
             get { return _status; }
             set { _status = value; OnPropertyChanged(); }
         }
-
+        [NotMapped]
         public string ImagePath
         {
             get { return _imagePath; }

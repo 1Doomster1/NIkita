@@ -11,7 +11,8 @@ namespace NikitaMicrosoft
         public MainWindow()
         {
             InitializeComponent();
-            DataContext = new AppViewModel();
+            var context = new NikitaDbContext();
+            DataContext = new AppViewModel(context);
 
             if (DataContext is AppViewModel vm)
             {

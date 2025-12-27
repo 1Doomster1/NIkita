@@ -126,14 +126,14 @@ namespace NikitaMicrosoft
 
         private Timer _typingTimer;
 
-        public AppViewModel()
+        public AppViewModel(NikitaDbContext context)
         {
             Username = $"User_{new Random().Next(1000, 9999)}";
 
             ConnectCommand = new RelayCommand(async () => await ConnectToServerAsync());
             DisconnectCommand = new RelayCommand(DisconnectFromServer);
-            SendMessageCommand = new RelayCommand(async () => await SendMessageAsync(), () => CanSendMessage);
-            NewChatCommand = new RelayCommand(CreateNewChat);
+            SendMessageCommand = new RelayCommand(async () => await SendMessageAsync(context), () => CanSendMessage);
+            NewChatCommand = new RelayCommand(() => CreateNewChat(context));
             ClearSearchCommand = new RelayCommand(() => SearchText = "");
             AttachFileCommand = new RelayCommand(AttachFile);
             AttachImageCommand = new RelayCommand(AttachImage);
@@ -141,75 +141,92 @@ namespace NikitaMicrosoft
             StartPrivateChatCommand = new RelayCommand<User>(StartPrivateChat);
 
             // Создаем тестовые данные
-            InitializeTestData();
+            InitializeTestData(context);
         }
 
-        private void InitializeTestData()
+        private void InitializeTestData(NikitaDbContext context)
         {
-            // Тестовые чаты
-            var chat1 = new Chat
-            {
-                Id = "1",
-                Name = "Алексей",
-                LastMessage = "Привет! Как дела?",
-                LastMessageTime = DateTime.Now.AddMinutes(-30),
-                IsOnline = true,
-                UnreadCount = 2
-            };
 
-            var chat2 = new Chat
-            {
-                Id = "2",
-                Name = "Мария",
-                LastMessage = "Отправлю файл завтра",
-                LastMessageTime = DateTime.Now.AddHours(-2),
-                IsOnline = false,
-                UnreadCount = 0
-            };
-
-            var chat3 = new Chat
-            {
-                Id = "3",
-                Name = "Общий чат",
-                LastMessage = "Добро пожаловать в общий чат!",
-                LastMessageTime = DateTime.Now.AddDays(-1),
-                IsOnline = true,
-                UnreadCount = 5
-            };
-
-            Chats.Add(chat1);
-            Chats.Add(chat2);
-            Chats.Add(chat3);
 
             // Тестовые сообщения для первого чата
-            chat1.Messages.Add(new Message
-            {
-                Id = "1",
-                Sender = "Алексей",
-                Content = "Привет!",
-                Timestamp = DateTime.Now.AddMinutes(-45),
-                IsMyMessage = false,
-                Type = MessageType.Text,
-                Status = MessageStatus.Read
-            });
+            //var message1 = new Message
+            //{
+            //    Id = "1",
+            //    Sender = "Алексей",
+            //    Content = "Привет!",
+            //    Timestamp = DateTime.Now.AddMinutes(-45),
+            //    IsMyMessage = false,
+            //    Type = MessageType.Text,
+            //    Status = MessageStatus.Read
+            //};
 
-            chat1.Messages.Add(new Message
+            //var message2 = new Message
+            //{
+            //    Id = "2",
+            //    Sender = Username,
+            //    Content = "Привет! Как дела?",
+            //    Timestamp = DateTime.Now.AddMinutes(-30),
+            //    IsMyMessage = true,
+            //    Type = MessageType.Text,
+            //    Status = MessageStatus.Delivered
+            //};
+
+            //context.messages.AddRange(message1, message2);
+
+
+            //// Тестовые чаты
+            //var chat1 = new Chat
+            //{
+            //    Id = "1",
+            //    Name = "Алексей",
+            //    LastMessage = "Привет! Как дела?",
+            //    LastMessageTime = DateTime.Now.AddMinutes(-30),
+            //    IsOnline = true,
+            //    UnreadCount = 2,
+            //    Messages = {message1}
+            //};
+
+            //var chat2 = new Chat
+            //{
+            //    Id = "2",
+            //    Name = "Мария",
+            //    LastMessage = "Отправлю файл завтра",
+            //    LastMessageTime = DateTime.Now.AddHours(-2),
+            //    IsOnline = false,
+            //    UnreadCount = 0,
+            //    Messages = {message2}
+            //};
+
+            //var chat3 = new Chat
+            //{
+            //    Id = "3",
+            //    Name = "Общий чат",
+            //    LastMessage = "Добро пожаловать в общий чат!",
+            //    LastMessageTime = DateTime.Now.AddDays(-1),
+            //    IsOnline = true,
+            //    UnreadCount = 5
+            //};
+
+            //context.chats.Add(chat1);
+            //context.chats.Add(chat2);
+            //context.chats.Add(chat3);
+            //context.SaveChanges();
+            foreach (var chat in context.chats)
             {
-                Id = "2",
-                Sender = Username,
-                Content = "Привет! Как дела?",
-                Timestamp = DateTime.Now.AddMinutes(-30),
-                IsMyMessage = true,
-                Type = MessageType.Text,
-                Status = MessageStatus.Delivered
-            });
+                Chats.Add(chat);
+            }
 
             // Тестовые онлайн пользователи
-            OnlineUsers.Add(new User { Id = "1", Username = "Алексей", IsOnline = true });
-            OnlineUsers.Add(new User { Id = "2", Username = "Мария", IsOnline = false });
-            OnlineUsers.Add(new User { Id = "3", Username = "Иван", IsOnline = true });
-            OnlineUsers.Add(new User { Id = "4", Username = "Ольга", IsOnline = true });
-            OnlineUsers.Add(new User { Id = "5", Username = "Дмитрий", IsOnline = false });
+            //context.users.Add(new User { Id = "1", Username = "Алексей", IsOnline = true });
+            //context.users.Add(new User { Id = "2", Username = "Мария", IsOnline = false });
+            //context.users.Add(new User { Id = "3", Username = "Иван", IsOnline = true });
+            //context.users.Add(new User { Id = "4", Username = "Ольга", IsOnline = true });
+            //context.users.Add(new User { Id = "5", Username = "Дмитрий", IsOnline = false });
+            //context.SaveChanges();
+            foreach(var user in context.users)
+            {
+                OnlineUsers.Add(user);
+            }
         }
 
         public async Task ConnectToServerAsync()
@@ -261,7 +278,7 @@ namespace NikitaMicrosoft
             }
         }
 
-        private async Task SendMessageAsync()
+        private async Task SendMessageAsync(NikitaDbContext context)
         {
             if (string.IsNullOrWhiteSpace(MessageText) || SelectedChat == null)
                 return;
@@ -278,6 +295,8 @@ namespace NikitaMicrosoft
             };
 
             SelectedChat.Messages.Add(message);
+            context.messages.Add(message);
+            context.SaveChanges();
             SelectedChat.LastMessage = MessageText;
             SelectedChat.LastMessageTime = DateTime.Now;
 
@@ -300,7 +319,7 @@ namespace NikitaMicrosoft
             }
         }
 
-        private void CreateNewChat()
+        private void CreateNewChat(NikitaDbContext context)
         {
             var dialog = new InputDialog("Новый чат", "Введите имя собеседника:");
             if (dialog.ShowDialog() == true)
@@ -314,10 +333,13 @@ namespace NikitaMicrosoft
                     LastMessage = "Нет сообщений",
                     LastMessageTime = DateTime.Now,
                     IsOnline = true,
-                    UnreadCount = 0
+                    UnreadCount = 0,
+                    Messages = {}
                 };
 
                 Chats.Insert(0, newChat);
+                context.chats.Add(newChat);
+                context.SaveChanges();
                 SelectedChat = newChat;
             }
         }
