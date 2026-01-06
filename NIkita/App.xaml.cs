@@ -12,10 +12,6 @@ namespace NIkita
 
         protected override void OnExit(ExitEventArgs e)
         {
-            if (Application.Current.MainWindow.DataContext is MainViewModel vm)
-            {
-                vm.SaveChatHistory();
-            }
             base.OnExit(e);
         }
     }
