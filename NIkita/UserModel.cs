@@ -1,18 +1,15 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.ComponentModel;
-using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Text;
-using System.Threading.Tasks;
 
-namespace NikitaMicrosoft
+namespace NikitaMessenger
 {
-    public class User : INotifyPropertyChanged
+    public class UserModel : INotifyPropertyChanged
     {
         private string _id;
         private string _username;
         private bool _isOnline;
+        private string _avatarPath;
 
         public string Id
         {
@@ -40,6 +37,16 @@ namespace NikitaMicrosoft
             set
             {
                 _isOnline = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public string AvatarPath
+        {
+            get => _avatarPath;
+            set
+            {
+                _avatarPath = value;
                 OnPropertyChanged();
             }
         }

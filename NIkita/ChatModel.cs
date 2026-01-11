@@ -2,11 +2,10 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using NIkita;
 
-namespace NikitaMicrosoft
+namespace NikitaMessenger
 {
-    public class Chat : INotifyPropertyChanged
+    public class ChatModel : INotifyPropertyChanged
     {
         private string _id;
         private string _name;
@@ -14,6 +13,7 @@ namespace NikitaMicrosoft
         private DateTime _lastMessageTime;
         private bool _isOnline;
         private int _unreadCount;
+        private string _typingStatus;
 
         public string Id
         {
@@ -51,9 +51,16 @@ namespace NikitaMicrosoft
             set { _unreadCount = value; OnPropertyChanged(); }
         }
 
+        public string TypingStatus
+        {
+            get { return _typingStatus; }
+            set { _typingStatus = value; OnPropertyChanged(); }
+        }
+
+        public bool IsTyping => !string.IsNullOrEmpty(TypingStatus);
+
         public ObservableCollection<Message> Messages { get; set; } = new ObservableCollection<Message>();
 
-        // Свойства для привязки без конвертеров
         public string LastMessageTimeString => LastMessageTime.ToString("HH:mm");
         public string LastMessageDateString => LastMessageTime.ToString("dd.MM");
 
@@ -65,11 +72,12 @@ namespace NikitaMicrosoft
             {
                 if (!string.IsNullOrEmpty(Name))
                 {
-                    if (Name.Length >= 2)
+                    var parts = Name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length >= 2)
                     {
-                        return Name.Substring(0, 2).ToUpper();
+                        return $"{parts[0][0]}{parts[1][0]}".ToUpper();
                     }
-                    return Name.ToUpper();
+                    return Name.Length >= 2 ? Name.Substring(0, 2).ToUpper() : Name.ToUpper();
                 }
                 return "??";
             }
