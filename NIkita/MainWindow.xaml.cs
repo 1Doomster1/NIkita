@@ -9,6 +9,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using Microsoft.Win32;
+using NIkita;
 
 namespace NikitaMessenger
 {
@@ -17,12 +18,14 @@ namespace NikitaMessenger
         // Модель сообщения
         public class Message
         {
+            public string Id { get; set; }
             public string Text { get; set; }
             public string Sender { get; set; }
             public DateTime Time { get; set; }
             public bool IsMyMessage { get; set; }
             public string AvatarText { get; set; }
             public Brush AvatarColor { get; set; }
+            public string ChatId { get; set; }
         }
 
         // Модель чата
@@ -37,6 +40,8 @@ namespace NikitaMessenger
             public string AvatarText { get; set; }
             public Brush AvatarColor { get; set; }
             public List<Message> Messages { get; set; } = new List<Message>();
+            public bool IsGroupChat { get; set; }
+            public List<string> Participants { get; set; } = new List<string>();
         }
 
         // Модель пользователя
@@ -56,130 +61,208 @@ namespace NikitaMessenger
         private Random random = new Random();
         private bool isConnected = false;
 
+        // Сетевой клиент
+        private NetworkClient networkClient = new NetworkClient();
+        private string currentUserId = Guid.NewGuid().ToString();
+
         // Цвета для аватаров
         private Brush[] avatarColors = new Brush[]
         {
-            new SolidColorBrush(Color.FromRgb(0, 132, 255)),   // Синий
-            new SolidColorBrush(Color.FromRgb(76, 175, 80)),    // Зеленый
-            new SolidColorBrush(Color.FromRgb(255, 87, 34)),    // Оранжевый
-            new SolidColorBrush(Color.FromRgb(156, 39, 176)),   // Фиолетовый
-            new SolidColorBrush(Color.FromRgb(233, 30, 99)),    // Розовый
-            new SolidColorBrush(Color.FromRgb(33, 150, 243)),   // Голубой
-            new SolidColorBrush(Color.FromRgb(255, 193, 7)),    // Желтый
-            new SolidColorBrush(Color.FromRgb(0, 150, 136))     // Бирюзовый
+            new SolidColorBrush(Color.FromRgb(0, 132, 255)),   
+            new SolidColorBrush(Color.FromRgb(76, 175, 80)),   
+            new SolidColorBrush(Color.FromRgb(255, 87, 34)),   
+            new SolidColorBrush(Color.FromRgb(156, 39, 176)),  
+            new SolidColorBrush(Color.FromRgb(233, 30, 99)),    
+            new SolidColorBrush(Color.FromRgb(33, 150, 243)),   
+            new SolidColorBrush(Color.FromRgb(255, 193, 7)),    
+            new SolidColorBrush(Color.FromRgb(0, 150, 136))     
         };
 
         public MainWindow()
         {
             InitializeComponent();
-            InitializeTestData();
+            InitializeNetworkEvents();
             UpdateOnlineUsersCount();
             UpdateChatsList();
         }
 
-        private void InitializeTestData()
+        private void InitializeNetworkEvents()
         {
-            // Тестовые чаты
-            chats = new List<Chat>
-            {
-                new Chat
-                {
-                    Id = "1",
-                    Name = "Анна Иванова",
-                    LastMessage = "Привет! Как дела?",
-                    LastMessageTime = DateTime.Now.AddMinutes(-30),
-                    IsOnline = true,
-                    UnreadCount = 2,
-                    AvatarText = "АИ",
-                    AvatarColor = avatarColors[0]
-                },
-                new Chat
-                {
-                    Id = "2",
-                    Name = "Иван Петров",
-                    LastMessage = "Встречаемся в 18:00",
-                    LastMessageTime = DateTime.Now.AddHours(-2),
-                    IsOnline = false,
-                    UnreadCount = 0,
-                    AvatarText = "ИП",
-                    AvatarColor = avatarColors[1]
-                },
-                new Chat
-                {
-                    Id = "3",
-                    Name = "Мария Сидорова",
-                    LastMessage = "Отправил документы",
-                    LastMessageTime = DateTime.Now.AddDays(-1),
-                    IsOnline = true,
-                    UnreadCount = 5,
-                    AvatarText = "МС",
-                    AvatarColor = avatarColors[2]
-                },
-                new Chat
-                {
-                    Id = "4",
-                    Name = "Рабочая группа",
-                    LastMessage = "Обсудим проект завтра",
-                    LastMessageTime = DateTime.Now.AddHours(-5),
-                    IsOnline = false,
-                    UnreadCount = 0,
-                    AvatarText = "РГ",
-                    AvatarColor = avatarColors[3]
-                },
-                new Chat
-                {
-                    Id = "5",
-                    Name = "Алексей Смирнов",
-                    LastMessage = "Спасибо за помощь!",
-                    LastMessageTime = DateTime.Now.AddDays(-2),
-                    IsOnline = false,
-                    UnreadCount = 1,
-                    AvatarText = "АС",
-                    AvatarColor = avatarColors[4]
-                }
-            };
+            networkClient.MessageReceived += OnMessageReceived;
+            networkClient.UserConnected += OnUserConnected;
+            networkClient.UserDisconnected += OnUserDisconnected;
+            networkClient.ConnectionStatusChanged += OnConnectionStatusChanged;
+        }
 
-            // Добавляем тестовые сообщения для первого чата
-            chats[0].Messages.AddRange(new[]
+        private void OnMessageReceived(string chatId, string message)
+        {
+            Dispatcher.Invoke(() =>
             {
-                new Message
+                // Ищем чат по ID
+                var chat = chats.FirstOrDefault(c => c.Id == chatId);
+                if (chat == null)
                 {
-                    Text = "Привет! Как дела?",
-                    Sender = "Анна",
-                    Time = DateTime.Now.AddMinutes(-30),
+                    // Создаем новый чат, если не найден
+                    chat = CreateNewChatFromMessage(chatId, message);
+                    chats.Insert(0, chat);
+                    UpdateChatsList();
+                }
+
+                var newMessage = new Message
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    Text = message,
+                    Sender = GetSenderFromMessage(message),
+                    Time = DateTime.Now,
                     IsMyMessage = false,
-                    AvatarText = "АИ",
-                    AvatarColor = avatarColors[0]
-                },
-                new Message
+                    AvatarText = GetAvatarText(GetSenderFromMessage(message)),
+                    AvatarColor = GetRandomColor(),
+                    ChatId = chatId
+                };
+
+                chat.Messages.Add(newMessage);
+                chat.LastMessage = newMessage.Text;
+                chat.LastMessageTime = newMessage.Time;
+                chat.UnreadCount++;
+
+                // Если чат открыт, обновляем сообщения
+                if (currentChat?.Id == chatId)
                 {
-                    Text = "Привет! Всё отлично, спасибо! А у тебя как?",
-                    Sender = "Я",
-                    Time = DateTime.Now.AddMinutes(-25),
-                    IsMyMessage = true,
-                    AvatarText = "U1",
-                    AvatarColor = new SolidColorBrush(Color.FromRgb(0, 132, 255))
-                },
-                new Message
+                    ShowMessages(chat);
+                    chat.UnreadCount = 0;
+                }
+
+                UpdateChatsList();
+            });
+        }
+
+        private void OnUserConnected(string username)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                // Добавляем пользователя в список онлайн
+                var existingUser = onlineUsers.FirstOrDefault(u => u.Name == username);
+                if (existingUser == null)
                 {
-                    Text = "Тоже всё хорошо! Завтра встретимся?",
-                    Sender = "Анна",
-                    Time = DateTime.Now.AddMinutes(-20),
-                    IsMyMessage = false,
-                    AvatarText = "АИ",
-                    AvatarColor = avatarColors[0]
+                    onlineUsers.Add(new User
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        Name = username,
+                        IsOnline = true,
+                        AvatarText = GetAvatarText(username),
+                        AvatarColor = GetRandomColor()
+                    });
+                }
+                else
+                {
+                    existingUser.IsOnline = true;
+                }
+
+                // Обновляем статус в чатах
+                foreach (var chat in chats.Where(c => c.Name == username))
+                {
+                    chat.IsOnline = true;
+                }
+
+                UpdateOnlineUsersList();
+                UpdateChatsList();
+
+                if (currentChat?.Name == username)
+                {
+                    ChatStatusText.Text = "онлайн";
+                    ChatStatusText.Foreground = new SolidColorBrush(Color.FromRgb(76, 175, 80));
                 }
             });
+        }
 
-            // Тестовые онлайн пользователи
-            onlineUsers = new List<User>
+        private void OnUserDisconnected(string username)
+        {
+            Dispatcher.Invoke(() =>
             {
-                new User { Id = "1", Name = "Анна Иванова", IsOnline = true, AvatarText = "АИ", AvatarColor = avatarColors[0] },
-                new User { Id = "3", Name = "Мария Сидорова", IsOnline = true, AvatarText = "МС", AvatarColor = avatarColors[2] },
-                new User { Id = "6", Name = "Дмитрий Козлов", IsOnline = true, AvatarText = "ДК", AvatarColor = avatarColors[5] },
-                new User { Id = "7", Name = "Елена Новикова", IsOnline = true, AvatarText = "ЕН", AvatarColor = avatarColors[6] },
-                new User { Id = "8", Name = "Сергей Волков", IsOnline = true, AvatarText = "СВ", AvatarColor = avatarColors[7] }
+                // Обновляем статус пользователя
+                var user = onlineUsers.FirstOrDefault(u => u.Name == username);
+                if (user != null)
+                {
+                    user.IsOnline = false;
+                }
+
+                // Обновляем статус в чатах
+                foreach (var chat in chats.Where(c => c.Name == username))
+                {
+                    chat.IsOnline = false;
+                }
+
+                UpdateOnlineUsersList();
+                UpdateChatsList();
+
+                if (currentChat?.Name == username)
+                {
+                    ChatStatusText.Text = "офлайн";
+                    ChatStatusText.Foreground = new SolidColorBrush(Color.FromRgb(153, 153, 153));
+                }
+            });
+        }
+
+        private void OnConnectionStatusChanged(bool isConnected)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                this.isConnected = isConnected;
+                ConnectButton.Content = isConnected ? "🔌" : "🔌";
+                ConnectButton.ToolTip = isConnected ? "Отключиться от сервера" : "Подключиться к серверу";
+
+                if (!isConnected)
+                {
+                    // При отключении обновляем все статусы
+                    foreach (var user in onlineUsers)
+                    {
+                        user.IsOnline = false;
+                    }
+
+                    foreach (var chat in chats)
+                    {
+                        chat.IsOnline = false;
+                    }
+
+                    UpdateOnlineUsersList();
+                    UpdateChatsList();
+
+                    if (currentChat != null)
+                    {
+                        ChatStatusText.Text = "офлайн";
+                        ChatStatusText.Foreground = new SolidColorBrush(Color.FromRgb(153, 153, 153));
+                    }
+                }
+            });
+        }
+
+        private string GetSenderFromMessage(string message)
+        {
+            // Извлекаем имя отправителя из сообщения имя"
+            var colonIndex = message.IndexOf(':');
+            return colonIndex > 0 ? message.Substring(0, colonIndex).Trim() : "Неизвестный";
+        }
+
+        private Chat CreateNewChatFromMessage(string chatId, string message)
+        {
+            var sender = GetSenderFromMessage(message);
+            return new Chat
+            {
+                Id = chatId,
+                Name = sender,
+                LastMessage = message,
+                LastMessageTime = DateTime.Now,
+                IsOnline = true,
+                UnreadCount = 1,
+                AvatarText = GetAvatarText(sender),
+                AvatarColor = GetRandomColor(),
+                IsGroupChat = false
             };
+        }
+
+        private Brush GetRandomColor()
+        {
+            return avatarColors[random.Next(avatarColors.Length)];
         }
 
         private void UpdateChatsList()
@@ -206,13 +289,6 @@ namespace NikitaMessenger
                 Cursor = Cursors.Hand,
                 Tag = chat
             };
-
-            // Стили для состояний
-            var hoverStyle = new Style(typeof(Border));
-            hoverStyle.Setters.Add(new Setter(Border.BackgroundProperty, new SolidColorBrush(Color.FromRgb(245, 245, 245))));
-
-            var pressedStyle = new Style(typeof(Border));
-            pressedStyle.Setters.Add(new Setter(Border.BackgroundProperty, new SolidColorBrush(Color.FromRgb(235, 235, 235))));
 
             border.MouseEnter += (s, e) =>
             {
@@ -307,7 +383,6 @@ namespace NikitaMessenger
             };
             infoPanel.Children.Add(lastMessageText);
 
-            // Время и счетчик
             var rightPanel = new StackPanel();
             Grid.SetColumn(rightPanel, 2);
             grid.Children.Add(rightPanel);
@@ -352,7 +427,7 @@ namespace NikitaMessenger
         {
             OnlineUsersPanel.Children.Clear();
 
-            foreach (var user in onlineUsers)
+            foreach (var user in onlineUsers.Where(u => u.IsOnline))
             {
                 var userItem = CreateUserItem(user);
                 OnlineUsersPanel.Children.Add(userItem);
@@ -403,7 +478,8 @@ namespace NikitaMessenger
                         IsOnline = user.IsOnline,
                         UnreadCount = 0,
                         AvatarText = user.AvatarText,
-                        AvatarColor = user.AvatarColor
+                        AvatarColor = user.AvatarColor,
+                        IsGroupChat = false
                     };
 
                     chats.Insert(0, newChat);
@@ -484,16 +560,6 @@ namespace NikitaMessenger
                     VerticalAlignment = VerticalAlignment.Center
                 };
                 statusPanel.Children.Add(onlineDot);
-            }
-            else
-            {
-                var offlineText = new TextBlock
-                {
-                    Text = "офлайн",
-                    FontSize = 12,
-                    Foreground = new SolidColorBrush(Color.FromRgb(153, 153, 153))
-                };
-                statusPanel.Children.Add(offlineText);
             }
 
             border.Child = grid;
@@ -678,80 +744,7 @@ namespace NikitaMessenger
             return border;
         }
 
-        private void SendMessage()
-        {
-            if (currentChat == null || string.IsNullOrWhiteSpace(MessageTextBox.Text))
-                return;
-
-            var messageText = MessageTextBox.Text.Trim();
-
-            // Создаем новое сообщение
-            var message = new Message
-            {
-                Text = messageText,
-                Sender = "Я",
-                Time = DateTime.Now,
-                IsMyMessage = true,
-                AvatarText = "U1",
-                AvatarColor = new SolidColorBrush(Color.FromRgb(0, 132, 255))
-            };
-
-            // Добавляем в текущий чат
-            currentChat.Messages.Add(message);
-            currentChat.LastMessage = messageText;
-            currentChat.LastMessageTime = DateTime.Now;
-
-            // Обновляем UI
-            ShowMessages(currentChat);
-            UpdateChatsList();
-
-            // Очищаем поле ввода
-            MessageTextBox.Text = "";
-            MessageTextBox.Focus();
-
-            // Имитируем ответ через 1-3 секунды
-            if (currentChat.IsOnline && random.Next(100) > 30) // 70% шанс на ответ
-            {
-                Dispatcher.InvokeAsync(async () =>
-                {
-                    await System.Threading.Tasks.Task.Delay(random.Next(1000, 3000));
-
-                    var responses = new[]
-                    {
-                        "Привет!",
-                        "Как дела?",
-                        "Интересно...",
-                        "Согласен!",
-                        "Давай обсудим это позже",
-                        "Спасибо за сообщение!",
-                        "Хорошо)",
-                        "Отличная новость!"
-                    };
-
-                    var response = new Message
-                    {
-                        Text = responses[random.Next(responses.Length)],
-                        Sender = currentChat.Name.Split(' ')[0],
-                        Time = DateTime.Now,
-                        IsMyMessage = false,
-                        AvatarText = currentChat.AvatarText,
-                        AvatarColor = currentChat.AvatarColor
-                    };
-
-                    currentChat.Messages.Add(response);
-                    currentChat.LastMessage = response.Text;
-                    currentChat.LastMessageTime = DateTime.Now;
-                    currentChat.UnreadCount++;
-
-                    Dispatcher.Invoke(() =>
-                    {
-                        ShowMessages(currentChat);
-                        UpdateChatsList();
-                    });
-                });
-            }
-        }
-
+        // ========== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ==========
         private string GetRelativeTime(DateTime time)
         {
             var span = DateTime.Now - time;
@@ -770,85 +763,7 @@ namespace NikitaMessenger
 
         private void UpdateOnlineUsersCount()
         {
-            OnlineUsersCountText.Text = $"({onlineUsers.Count})";
-        }
-
-        // Обработчики событий
-
-        private void ConnectButton_Click(object sender, RoutedEventArgs e)
-        {
-            isConnected = !isConnected;
-
-            if (isConnected)
-            {
-                ConnectButton.Content = "🔌";
-                ConnectButton.ToolTip = "Отключиться от сервера";
-
-                // Имитация подключения пользователей
-                onlineUsers.AddRange(new[]
-                {
-                    new User { Id = "9", Name = "Ольга Белова", IsOnline = true, AvatarText = "ОБ", AvatarColor = avatarColors[0] },
-                    new User { Id = "10", Name = "Павел Гришин", IsOnline = true, AvatarText = "ПГ", AvatarColor = avatarColors[1] }
-                });
-
-                // Обновляем статус некоторых чатов
-                foreach (var chat in chats.Where(c => random.Next(100) > 50))
-                {
-                    chat.IsOnline = true;
-                }
-
-                MessageBox.Show("Подключено к серверу!", "Успех", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            else
-            {
-                ConnectButton.Content = "🔌";
-                ConnectButton.ToolTip = "Подключиться к серверу";
-
-                // Имитация отключения пользователей
-                onlineUsers.RemoveAll(u => u.Id == "9" || u.Id == "10");
-
-                // Обновляем статус чатов
-                foreach (var chat in chats)
-                {
-                    chat.IsOnline = false;
-                }
-
-                MessageBox.Show("Отключено от сервера", "Информация", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-
-            UpdateOnlineUsersList();
-            UpdateChatsList();
-
-            if (currentChat != null)
-            {
-                ChatStatusText.Text = currentChat.IsOnline ? "онлайн" : "офлайн";
-                ChatStatusText.Foreground = currentChat.IsOnline ?
-                    new SolidColorBrush(Color.FromRgb(76, 175, 80)) :
-                    new SolidColorBrush(Color.FromRgb(153, 153, 153));
-            }
-        }
-
-        private void NewChatButton_Click(object sender, RoutedEventArgs e)
-        {
-            var dialog = new NewChatWindow();
-            if (dialog.ShowDialog() == true)
-            {
-                var newChat = new Chat
-                {
-                    Id = Guid.NewGuid().ToString(),
-                    Name = dialog.ChatName,
-                    LastMessage = "Чат создан",
-                    LastMessageTime = DateTime.Now,
-                    IsOnline = false,
-                    UnreadCount = 0,
-                    AvatarText = GetAvatarText(dialog.ChatName),
-                    AvatarColor = avatarColors[random.Next(avatarColors.Length)]
-                };
-
-                chats.Insert(0, newChat);
-                UpdateChatsList();
-                SelectChat(newChat);
-            }
+            OnlineUsersCountText.Text = $"({onlineUsers.Count(u => u.IsOnline)})";
         }
 
         private string GetAvatarText(string name)
@@ -858,6 +773,202 @@ namespace NikitaMessenger
                 return $"{parts[0][0]}{parts[1][0]}".ToUpper();
 
             return name.Length >= 2 ? name.Substring(0, 2).ToUpper() : name.ToUpper();
+        }
+
+        // ========== ОБРАБОТЧИКИ СОБЫТИЙ ==========
+        private async void ConnectButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (isConnected)
+            {
+                networkClient.Disconnect();
+                MessageBox.Show("Отключено от сервера", "Информация", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                // Запрашиваем имя пользователя
+                var dialog = new UsernameDialog();
+                if (dialog.ShowDialog() == true)
+                {
+                    var username = dialog.Username;
+
+                    // Показываем индикатор загрузки
+                    ConnectButton.Content = "⏳";
+                    ConnectButton.IsEnabled = false;
+
+                    try
+                    {
+                        // Подключаемся к серверу
+                        bool connected = await networkClient.ConnectAsync("127.0.0.1", 8888);
+
+                        if (connected)
+                        {
+                            // Логинимся
+                            await networkClient.LoginAsync(username);
+                            MessageBox.Show($"Подключено как {username}", "Успех", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                            // Обновляем имя пользователя в интерфейсе - СПОСОБ 1 (проще и надежнее)
+                            try
+                            {
+                                // Ищем TextBlock с именем пользователя в левой панели
+                                UpdateUsernameInUI(username);
+                            }
+                            catch (Exception uiEx)
+                            {
+                                Console.WriteLine($"Не удалось обновить имя в UI: {uiEx.Message}");
+                                // Это не критичная ошибка, продолжаем работу
+                            }
+
+                            // Обновляем аватар
+                            UpdateUserAvatarInUI(username);
+                        }
+                        else
+                        {
+                            MessageBox.Show("Не удалось подключиться к серверу", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Ошибка подключения: {ex.Message}", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                    }
+                    finally
+                    {
+                        ConnectButton.IsEnabled = true;
+                        if (isConnected)
+                        {
+                            ConnectButton.Content = "🔌";
+                            ConnectButton.ToolTip = "Отключиться от сервера";
+                        }
+                        else
+                        {
+                            ConnectButton.Content = "🔌";
+                            ConnectButton.ToolTip = "Подключиться к серверу";
+                        }
+                    }
+                }
+            }
+        }
+
+        private void UpdateUsernameInUI(string username)
+        {
+            try
+            {
+                // Ищем StackPanel с информацией о пользователе
+                var leftPanel = FindVisualChild<StackPanel>(this, "LeftPanelInfo");
+                if (leftPanel != null && leftPanel.Children.Count > 0)
+                {
+                    // Предполагаем, что первый TextBlock - это имя пользователя
+                    if (leftPanel.Children[0] is TextBlock nameTextBlock)
+                    {
+                        nameTextBlock.Text = username;
+                        return;
+                    }
+                }
+
+                // Альтернативный способ - поиск по имени
+                var nameText = FindVisualChild<TextBlock>(this, "UserNameText");
+                if (nameText != null)
+                {
+                    nameText.Text = username;
+                    return;
+                }
+
+                // Если не нашли, просто выведем в консоль
+                Console.WriteLine($"Имя пользователя установлено: {username} (UI не обновлено)");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка обновления имени в UI: {ex.Message}");
+            }
+        }
+
+        private T FindVisualChild<T>(DependencyObject parent, string childName = null) where T : DependencyObject
+        {
+            if (parent == null) return null;
+
+            int childrenCount = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < childrenCount; i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+
+                if (child is T result)
+                {
+                    if (childName == null || (child is FrameworkElement fe && fe.Name == childName))
+                    {
+                        return result;
+                    }
+                }
+
+                var childResult = FindVisualChild<T>(child, childName);
+                if (childResult != null)
+                {
+                    return childResult;
+                }
+            }
+            return null;
+        }
+
+        // Метод для обновления аватара в UI
+        private void UpdateUserAvatarInUI(string username)
+        {
+            try
+            {
+                if (AvatarButton.Content is Border border)
+                {
+                    // Если в Border есть TextBlock (текстовый аватар)
+                    if (border.Child is Grid grid && grid.Children.Count > 0)
+                    {
+                        if (grid.Children[0] is TextBlock textBlock)
+                        {
+                            textBlock.Text = GetAvatarText(username);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка обновления аватара: {ex.Message}");
+            }
+        }
+
+        private async void NewChatButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (!isConnected)
+            {
+                MessageBox.Show("Сначала подключитесь к серверу", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var dialog = new NewChatWindow(onlineUsers.Where(u => u.IsOnline).Select(u => u.Name).ToList());
+            if (dialog.ShowDialog() == true)
+            {
+                var chatId = Guid.NewGuid().ToString();
+                var newChat = new Chat
+                {
+                    Id = chatId,
+                    Name = dialog.ChatName,
+                    LastMessage = "Чат создан",
+                    LastMessageTime = DateTime.Now,
+                    IsOnline = true,
+                    UnreadCount = 0,
+                    AvatarText = GetAvatarText(dialog.ChatName),
+                    AvatarColor = GetRandomColor(),
+                    IsGroupChat = dialog.IsGroupChat,
+                    Participants = dialog.SelectedUsers
+                };
+
+                chats.Insert(0, newChat);
+                UpdateChatsList();
+                SelectChat(newChat);
+
+                // Отправляем уведомление о создании чата
+                if (networkClient.IsConnected && dialog.SelectedUsers.Any())
+                {
+                    foreach (var user in dialog.SelectedUsers)
+                    {
+                        await networkClient.SendMessageAsync(chatId, $"Чат '{dialog.ChatName}' создан. Присоединился: {user}");
+                    }
+                }
+            }
         }
 
         private void SearchTextBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -871,6 +982,50 @@ namespace NikitaMessenger
         {
             SearchTextBox.Text = "";
             SearchTextBox.Focus();
+        }
+
+        // Обновленный SendMessage для отправки через сеть
+        private async void SendMessage()
+        {
+            if (currentChat == null || string.IsNullOrWhiteSpace(MessageTextBox.Text))
+                return;
+
+            if (!networkClient.IsConnected)
+            {
+                MessageBox.Show("Нет подключения к серверу", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var messageText = MessageTextBox.Text.Trim();
+
+            // Создаем локальное сообщение
+            var message = new Message
+            {
+                Id = Guid.NewGuid().ToString(),
+                Text = messageText,
+                Sender = "Я",
+                Time = DateTime.Now,
+                IsMyMessage = true,
+                AvatarText = "U1",
+                AvatarColor = new SolidColorBrush(Color.FromRgb(0, 132, 255)),
+                ChatId = currentChat.Id
+            };
+
+            // Добавляем в текущий чат
+            currentChat.Messages.Add(message);
+            currentChat.LastMessage = messageText;
+            currentChat.LastMessageTime = DateTime.Now;
+
+            // Обновляем UI
+            ShowMessages(currentChat);
+            UpdateChatsList();
+
+            // Отправляем через сеть
+            await networkClient.SendMessageAsync(currentChat.Id, messageText);
+
+            // Очищаем поле ввода
+            MessageTextBox.Text = "";
+            MessageTextBox.Focus();
         }
 
         private void MessageTextBox_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -1005,10 +1160,6 @@ namespace NikitaMessenger
 
         private void UpdateUserAvatar(ImageSource newAvatar)
         {
-            // В текущей реализации мы не можем сохранить ImageSource в модель сообщения,
-            // так как модель использует Brush для цвета.
-            // Можно либо изменить модель, либо просто обновить UI
-
             // Просто перерисовываем сообщения, если чат активен
             if (currentChat != null && ChatHeader.Visibility == Visibility.Visible)
             {
