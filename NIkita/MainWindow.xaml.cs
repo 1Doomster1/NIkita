@@ -8,6 +8,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using NIkita;
 
@@ -92,48 +93,6 @@ namespace NikitaMessenger
             networkClient.UserConnected += OnUserConnected;
             networkClient.UserDisconnected += OnUserDisconnected;
             networkClient.ConnectionStatusChanged += OnConnectionStatusChanged;
-        }
-
-        private void OnMessageReceived(string chatId, string message)
-        {
-            Dispatcher.Invoke(() =>
-            {
-                // Ищем чат по ID
-                var chat = chats.FirstOrDefault(c => c.Id == chatId);
-                if (chat == null)
-                {
-                    // Создаем новый чат, если не найден
-                    chat = CreateNewChatFromMessage(chatId, message);
-                    chats.Insert(0, chat);
-                    UpdateChatsList();
-                }
-
-                var newMessage = new Message
-                {
-                    Id = Guid.NewGuid().ToString(),
-                    Text = message,
-                    Sender = GetSenderFromMessage(message),
-                    Time = DateTime.Now,
-                    IsMyMessage = false,
-                    AvatarText = GetAvatarText(GetSenderFromMessage(message)),
-                    AvatarColor = GetRandomColor(),
-                    ChatId = chatId
-                };
-
-                chat.Messages.Add(newMessage);
-                chat.LastMessage = newMessage.Text;
-                chat.LastMessageTime = newMessage.Time;
-                chat.UnreadCount++;
-
-                // Если чат открыт, обновляем сообщения
-                if (currentChat?.Id == chatId)
-                {
-                    ShowMessages(chat);
-                    chat.UnreadCount = 0;
-                }
-
-                UpdateChatsList();
-            });
         }
 
         private void OnUserConnected(string username)
@@ -650,101 +609,6 @@ namespace NikitaMessenger
             MessagesScrollViewer.ScrollToBottom();
         }
 
-        private Border CreateMessageControl(Message message)
-        {
-            var border = new Border
-            {
-                Style = (Style)FindResource("MessageBorderStyle"),
-                Tag = message
-            };
-
-            var grid = new Grid();
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Auto) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-            // Аватар отправителя (только для чужих сообщений)
-            if (!message.IsMyMessage)
-            {
-                var avatarBorder = new Border
-                {
-                    Width = 32,
-                    Height = 32,
-                    CornerRadius = new CornerRadius(16),
-                    Background = message.AvatarColor,
-                    Margin = new Thickness(0, 0, 10, 0),
-                    VerticalAlignment = VerticalAlignment.Top
-                };
-
-                var avatarText = new TextBlock
-                {
-                    Text = message.AvatarText,
-                    Foreground = Brushes.White,
-                    FontSize = 12,
-                    FontWeight = FontWeights.Bold,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-
-                avatarBorder.Child = avatarText;
-                Grid.SetColumn(avatarBorder, 0);
-                grid.Children.Add(avatarBorder);
-            }
-
-            // Контент сообщения
-            var contentPanel = new StackPanel();
-            Grid.SetColumn(contentPanel, message.IsMyMessage ? 1 : 1);
-            if (!message.IsMyMessage)
-                Grid.SetColumnSpan(contentPanel, 2);
-
-            // Текст сообщения
-            var textBlock = new TextBlock
-            {
-                Text = message.Text,
-                Foreground = message.IsMyMessage ? Brushes.White : Brushes.Black,
-                FontSize = 14,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 0, 0, 4)
-            };
-            contentPanel.Children.Add(textBlock);
-
-            // Время отправки
-            var timePanel = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = message.IsMyMessage ? HorizontalAlignment.Right : HorizontalAlignment.Left
-            };
-
-            var timeText = new TextBlock
-            {
-                Text = message.Time.ToString("HH:mm"),
-                FontSize = 11,
-                Foreground = message.IsMyMessage ?
-                    new SolidColorBrush(Color.FromArgb(180, 255, 255, 255)) :
-                    new SolidColorBrush(Color.FromArgb(180, 102, 102, 102))
-            };
-            timePanel.Children.Add(timeText);
-
-            // Галочка прочтения (только для моих сообщений)
-            if (message.IsMyMessage)
-            {
-                var readIcon = new TextBlock
-                {
-                    Text = "✓✓",
-                    FontSize = 11,
-                    Foreground = new SolidColorBrush(Color.FromArgb(180, 255, 255, 255)),
-                    Margin = new Thickness(4, 0, 0, 0)
-                };
-                timePanel.Children.Add(readIcon);
-            }
-
-            contentPanel.Children.Add(timePanel);
-            grid.Children.Add(contentPanel);
-
-            border.Child = grid;
-            return border;
-        }
-
-        // ========== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ==========
         private string GetRelativeTime(DateTime time)
         {
             var span = DateTime.Now - time;
@@ -775,7 +639,6 @@ namespace NikitaMessenger
             return name.Length >= 2 ? name.Substring(0, 2).ToUpper() : name.ToUpper();
         }
 
-        // ========== ОБРАБОТЧИКИ СОБЫТИЙ ==========
         private async void ConnectButton_Click(object sender, RoutedEventArgs e)
         {
             if (isConnected)
@@ -847,6 +710,28 @@ namespace NikitaMessenger
                 }
             }
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         private void UpdateUsernameInUI(string username)
         {
@@ -1098,7 +983,6 @@ namespace NikitaMessenger
             }
         }
 
-        // Сохранение аватара в файл для использования между запусками
         private void SaveAvatarToFile(BitmapImage image, string sourcePath)
         {
             try
@@ -1120,7 +1004,6 @@ namespace NikitaMessenger
             }
         }
 
-        // Загрузка аватара при запуске приложения
         private void LoadAvatarOnStartup()
         {
             try
@@ -1164,36 +1047,6 @@ namespace NikitaMessenger
             if (currentChat != null && ChatHeader.Visibility == Visibility.Visible)
             {
                 ShowMessages(currentChat);
-            }
-        }
-
-        private void AttachFileButton_Click(object sender, RoutedEventArgs e)
-        {
-            var openFileDialog = new OpenFileDialog
-            {
-                Filter = "Все файлы (*.*)|*.*",
-                Title = "Выберите файл для отправки"
-            };
-
-            if (openFileDialog.ShowDialog() == true)
-            {
-                MessageBox.Show($"Файл выбран: {System.IO.Path.GetFileName(openFileDialog.FileName)}",
-                    "Файл", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-        }
-
-        private void AttachImageButton_Click(object sender, RoutedEventArgs e)
-        {
-            var openFileDialog = new OpenFileDialog
-            {
-                Filter = "Image files (*.jpg;*.jpeg;*.png;*.bmp)|*.jpg;*.jpeg;*.png;*.bmp",
-                Title = "Выберите изображение"
-            };
-
-            if (openFileDialog.ShowDialog() == true)
-            {
-                MessageBox.Show($"Изображение выбрано: {System.IO.Path.GetFileName(openFileDialog.FileName)}",
-                    "Изображение", MessageBoxButton.OK, MessageBoxImage.Information);
             }
         }
 
@@ -1270,5 +1123,820 @@ namespace NikitaMessenger
                 textBox.Foreground = new SolidColorBrush(Color.FromRgb(153, 153, 153));
             }
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        private async void AttachFileButton_Click(object sender, RoutedEventArgs e)
+        {
+            var openFileDialog = new OpenFileDialog
+            {
+                Title = "Выберите файл для отправки",
+                Filter = "Все файлы (*.*)|*.*|" +
+                        "Документы (*.pdf;*.doc;*.docx;*.xls;*.xlsx;*.txt)|*.pdf;*.doc;*.docx;*.xls;*.xlsx;*.txt|" +
+                        "Изображения (*.jpg;*.jpeg;*.png;*.bmp;*.gif)|*.jpg;*.jpeg;*.png;*.bmp;*.gif|" +
+                        "Архивы (*.zip;*.rar;*.7z)|*.zip;*.rar;*.7z|" +
+                        "Аудио (*.mp3;*.wav;*.flac)|*.mp3;*.wav;*.flac|" +
+                        "Видео (*.mp4;*.avi;*.mkv)|*.mp4;*.avi;*.mkv",
+                Multiselect = false
+            };
+
+            if (openFileDialog.ShowDialog() == true)
+            {
+                var filePath = openFileDialog.FileName;
+                var fileInfo = new FileInfo(filePath);
+
+                // Проверяем размер файла (макс 100 МБ)
+                if (fileInfo.Length > 100 * 1024 * 1024)
+                {
+                    MessageBox.Show("Файл слишком большой. Максимальный размер: 100 МБ",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                // Определяем тип файла
+                var ext = System.IO.Path.GetExtension(filePath).ToLower();
+                var imageExtensions = new[] { ".jpg", ".jpeg", ".png", ".bmp", ".gif" };
+
+                if (imageExtensions.Contains(ext))
+                {
+                    await SendImage(filePath);
+                }
+                else
+                {
+                    await SendFile(filePath);
+                }
+            }
+        }
+
+        private async void AttachImageButton_Click(object sender, RoutedEventArgs e)
+        {
+            var openFileDialog = new OpenFileDialog
+            {
+                Title = "Выберите изображение",
+                Filter = "Изображения (*.jpg;*.jpeg;*.png;*.bmp;*.gif)|*.jpg;*.jpeg;*.png;*.bmp;*.gif",
+                Multiselect = false
+            };
+
+            if (openFileDialog.ShowDialog() == true)
+            {
+                await SendImage(openFileDialog.FileName);
+            }
+        }
+
+        // Метод отправки файла
+        private async Task SendFile(string filePath)
+        {
+            if (currentChat == null || string.IsNullOrEmpty(filePath))
+                return;
+
+            if (!networkClient.IsConnected)
+            {
+                MessageBox.Show("Нет подключения к серверу", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            try
+            {
+                // Сохраняем файл в локальное хранилище
+                string savedPath = FileManager.SaveFile(filePath);
+                if (string.IsNullOrEmpty(savedPath))
+                    return;
+
+                var fileName = System.IO.Path.GetFileName(filePath);
+                var fileSize = FileManager.GetFileSize(savedPath);
+
+                // Формируем специальное сообщение для файла
+                string fileMessage = $"[FILE]:{fileName}|{fileSize}|{savedPath}";
+
+                // Создаем локальное сообщение
+                var message = new Message
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    Text = $"📎 Файл: {fileName} ({FileManager.FormatFileSize(fileSize)})",
+                    Sender = "Я",
+                    Time = DateTime.Now,
+                    IsMyMessage = true,
+                    AvatarText = "U1",
+                    AvatarColor = new SolidColorBrush(Color.FromRgb(0, 132, 255)),
+                    ChatId = currentChat.Id
+                };
+
+                // Добавляем в текущий чат
+                currentChat.Messages.Add(message);
+                currentChat.LastMessage = $"📎 {fileName}";
+                currentChat.LastMessageTime = DateTime.Now;
+
+                // Обновляем UI
+                ShowMessages(currentChat);
+                UpdateChatsList();
+
+                // Отправляем через сеть
+                await networkClient.SendMessageAsync(currentChat.Id, fileMessage);
+
+                MessageBox.Show($"Файл \"{fileName}\" отправлен",
+                    "Файл", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка отправки файла: {ex.Message}",
+                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        // Метод отправки изображения
+        private async Task SendImage(string imagePath)
+        {
+            if (currentChat == null || string.IsNullOrEmpty(imagePath))
+                return;
+
+            if (!networkClient.IsConnected)
+            {
+                MessageBox.Show("Нет подключения к серверу", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            try
+            {
+                // Проверяем размер изображения (макс 20 МБ)
+                var fileInfo = new FileInfo(imagePath);
+                if (fileInfo.Length > 20 * 1024 * 1024)
+                {
+                    MessageBox.Show("Изображение слишком большое. Максимальный размер: 20 МБ",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                // Сохраняем изображение
+                string savedPath = FileManager.SaveImage(imagePath);
+                if (string.IsNullOrEmpty(savedPath))
+                    return;
+
+                var fileName = System.IO.Path.GetFileName(imagePath);
+
+                // Формируем специальное сообщение для изображения
+                string imageMessage = $"[IMAGE]:{fileName}|{savedPath}";
+
+                // Создаем локальное сообщение
+                var message = new Message
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    Text = $"🖼 Изображение: {fileName}",
+                    Sender = "Я",
+                    Time = DateTime.Now,
+                    IsMyMessage = true,
+                    AvatarText = "U1",
+                    AvatarColor = new SolidColorBrush(Color.FromRgb(0, 132, 255)),
+                    ChatId = currentChat.Id
+                };
+
+                // Добавляем в текущий чат
+                currentChat.Messages.Add(message);
+                currentChat.LastMessage = "🖼 Изображение";
+                currentChat.LastMessageTime = DateTime.Now;
+
+                // Обновляем UI
+                ShowMessages(currentChat);
+                UpdateChatsList();
+
+                // Отправляем через сеть
+                await networkClient.SendMessageAsync(currentChat.Id, imageMessage);
+
+                // Показываем превью
+                ShowImagePreview(savedPath);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка отправки изображения: {ex.Message}",
+                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        // Метод для отображения превью изображения
+        private void ShowImagePreview(string imagePath)
+        {
+            try
+            {
+                var previewWindow = new Window
+                {
+                    Title = "Предпросмотр изображения",
+                    Width = 600,
+                    Height = 500,
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                    Owner = this,
+                    ResizeMode = ResizeMode.CanResizeWithGrip,
+                    WindowStyle = WindowStyle.ToolWindow
+                };
+
+                var image = new Image
+                {
+                    Source = new BitmapImage(new Uri(imagePath)),
+                    Stretch = Stretch.Uniform,
+                    Margin = new Thickness(10)
+                };
+
+                var scrollViewer = new ScrollViewer
+                {
+                    Content = image,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Auto
+                };
+
+                previewWindow.Content = scrollViewer;
+                previewWindow.Show();
+            }
+            catch
+            {
+                // Игнорируем ошибки превью
+            }
+        }
+
+        // Метод для сохранения файла на диск
+        public void SaveFileToDisk(Message message, string content)
+        {
+            if (message == null || string.IsNullOrEmpty(content))
+                return;
+
+            try
+            {
+                // Парсим информацию о файле из сообщения
+                if (content.StartsWith("[FILE]:"))
+                {
+                    var parts = content.Substring(7).Split('|');
+                    if (parts.Length >= 3)
+                    {
+                        var fileName = parts[0];
+                        var fileSize = long.TryParse(parts[1], out var size) ? size : 0;
+                        var filePath = parts[2];
+
+                        var saveFileDialog = new SaveFileDialog
+                        {
+                            FileName = fileName,
+                            Title = "Сохранить файл",
+                            Filter = "Все файлы (*.*)|*.*"
+                        };
+
+                        if (saveFileDialog.ShowDialog() == true)
+                        {
+                            File.Copy(filePath, saveFileDialog.FileName, true);
+                            MessageBox.Show($"Файл сохранен: {saveFileDialog.FileName}",
+                                "Сохранено", MessageBoxButton.OK, MessageBoxImage.Information);
+                        }
+                    }
+                }
+                else if (content.StartsWith("[IMAGE]:"))
+                {
+                    var parts = content.Substring(8).Split('|');
+                    if (parts.Length >= 2)
+                    {
+                        var fileName = parts[0];
+                        var imagePath = parts[1];
+
+                        var saveFileDialog = new SaveFileDialog
+                        {
+                            FileName = fileName,
+                            Title = "Сохранить изображение",
+                            Filter = "Изображения (*.jpg;*.jpeg;*.png;*.bmp;*.gif)|*.jpg;*.jpeg;*.png;*.bmp;*.gif"
+                        };
+
+                        if (saveFileDialog.ShowDialog() == true)
+                        {
+                            File.Copy(imagePath, saveFileDialog.FileName, true);
+                            MessageBox.Show($"Изображение сохранено: {saveFileDialog.FileName}",
+                                "Сохранено", MessageBoxButton.OK, MessageBoxImage.Information);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка сохранения файла: {ex.Message}",
+                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        // ОБНОВЛЕННЫЙ метод OnMessageReceived для обработки файлов
+        private void OnMessageReceived(string chatId, string content)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                // Ищем чат по ID
+                var chat = chats.FirstOrDefault(c => c.Id == chatId);
+                if (chat == null)
+                {
+                    chat = CreateNewChatFromMessage(chatId, content);
+                    chats.Insert(0, chat);
+                    UpdateChatsList();
+                }
+
+                Message newMessage;
+
+                // Проверяем, является ли сообщение файлом или изображением
+                if (content.StartsWith("[FILE]:"))
+                {
+                    var parts = content.Substring(7).Split('|');
+                    if (parts.Length >= 3)
+                    {
+                        var fileName = parts[0];
+                        var fileSize = long.TryParse(parts[1], out var size) ? size : 0;
+                        var filePath = parts[2];
+
+                        newMessage = new Message
+                        {
+                            Id = Guid.NewGuid().ToString(),
+                            Text = $"📎 Файл: {fileName} ({FileManager.FormatFileSize(fileSize)})",
+                            Sender = GetSenderFromMessage(content),
+                            Time = DateTime.Now,
+                            IsMyMessage = false,
+                            AvatarText = GetAvatarText(GetSenderFromMessage(content)),
+                            AvatarColor = GetRandomColor(),
+                            ChatId = chatId
+                        };
+                    }
+                    else
+                    {
+                        return;
+                    }
+                }
+                else if (content.StartsWith("[IMAGE]:"))
+                {
+                    var parts = content.Substring(8).Split('|');
+                    if (parts.Length >= 2)
+                    {
+                        var fileName = parts[0];
+
+                        newMessage = new Message
+                        {
+                            Id = Guid.NewGuid().ToString(),
+                            Text = $"🖼 Изображение: {fileName}",
+                            Sender = GetSenderFromMessage(content),
+                            Time = DateTime.Now,
+                            IsMyMessage = false,
+                            AvatarText = GetAvatarText(GetSenderFromMessage(content)),
+                            AvatarColor = GetRandomColor(),
+                            ChatId = chatId
+                        };
+                    }
+                    else
+                    {
+                        return;
+                    }
+                }
+                else
+                {
+                    // Обычное текстовое сообщение
+                    newMessage = new Message
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        Text = content,
+                        Sender = GetSenderFromMessage(content),
+                        Time = DateTime.Now,
+                        IsMyMessage = false,
+                        AvatarText = GetAvatarText(GetSenderFromMessage(content)),
+                        AvatarColor = GetRandomColor(),
+                        ChatId = chatId
+                    };
+                }
+
+                chat.Messages.Add(newMessage);
+                chat.LastMessage = newMessage.Text;
+                chat.LastMessageTime = newMessage.Time;
+                chat.UnreadCount++;
+
+                // Если чат открыт, обновляем сообщения
+                if (currentChat?.Id == chatId)
+                {
+                    ShowMessages(chat);
+                    chat.UnreadCount = 0;
+                }
+
+                UpdateChatsList();
+            });
+        }
+
+        // ОБНОВЛЕННЫЙ метод CreateMessageControl для отображения файлов
+        private Border CreateMessageControl(Message message)
+        {
+            var border = new Border
+            {
+                Style = (Style)FindResource("MessageBorderStyle"),
+                Tag = message,
+                Cursor = Cursors.Hand
+            };
+
+            // Добавляем обработчик клика для файлов/изображений
+            border.MouseLeftButtonUp += (s, e) =>
+            {
+                if (message.Text.Contains("📎 Файл:") || message.Text.Contains("🖼 Изображение:"))
+                {
+                    SaveFileToDisk(message, message.Text);
+                }
+            };
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Auto) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            // Аватар отправителя (только для чужих сообщений)
+            if (!message.IsMyMessage)
+            {
+                var avatarBorder = new Border
+                {
+                    Width = 32,
+                    Height = 32,
+                    CornerRadius = new CornerRadius(16),
+                    Background = message.AvatarColor,
+                    Margin = new Thickness(0, 0, 10, 0),
+                    VerticalAlignment = VerticalAlignment.Top
+                };
+
+                var avatarText = new TextBlock
+                {
+                    Text = message.AvatarText,
+                    Foreground = Brushes.White,
+                    FontSize = 12,
+                    FontWeight = FontWeights.Bold,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+
+                avatarBorder.Child = avatarText;
+                Grid.SetColumn(avatarBorder, 0);
+                grid.Children.Add(avatarBorder);
+            }
+
+            // Контент сообщения
+            var contentPanel = new StackPanel();
+            Grid.SetColumn(contentPanel, message.IsMyMessage ? 1 : 1);
+            if (!message.IsMyMessage)
+                Grid.SetColumnSpan(contentPanel, 2);
+
+            // Определяем тип сообщения
+            bool isFile = message.Text.Contains("📎 Файл:");
+            bool isImage = message.Text.Contains("🖼 Изображение:");
+
+            if (isFile || isImage)
+            {
+                // Стилизованный блок для файла/изображения
+                var fileBorder = new Border
+                {
+                    Background = message.IsMyMessage ?
+                        new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)) :
+                        new SolidColorBrush(Color.FromArgb(20, 0, 0, 0)),
+                    CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(12),
+                    Margin = new Thickness(0, 0, 0, 5)
+                };
+
+                var fileStack = new StackPanel();
+
+                var iconText = new TextBlock
+                {
+                    Text = isFile ? "📎" : "🖼",
+                    FontSize = 24,
+                    Margin = new Thickness(0, 0, 0, 8),
+                    HorizontalAlignment = HorizontalAlignment.Center
+                };
+                fileStack.Children.Add(iconText);
+
+                var messageText = new TextBlock
+                {
+                    Text = message.Text,
+                    Foreground = message.IsMyMessage ? Brushes.White : Brushes.Black,
+                    FontSize = 14,
+                    TextWrapping = TextWrapping.Wrap,
+                    TextAlignment = TextAlignment.Center
+                };
+                fileStack.Children.Add(messageText);
+
+                var hintText = new TextBlock
+                {
+                    Text = "Нажмите для сохранения",
+                    Foreground = message.IsMyMessage ?
+                        new SolidColorBrush(Color.FromArgb(150, 255, 255, 255)) :
+                        new SolidColorBrush(Color.FromArgb(150, 0, 0, 0)),
+                    FontSize = 11,
+                    FontStyle = FontStyles.Italic,
+                    Margin = new Thickness(0, 8, 0, 0),
+                    TextAlignment = TextAlignment.Center
+                };
+                fileStack.Children.Add(hintText);
+
+                fileBorder.Child = fileStack;
+                contentPanel.Children.Add(fileBorder);
+            }
+            else
+            {
+                // Обычный текст сообщения
+                var textBlock = new TextBlock
+                {
+                    Text = message.Text,
+                    Foreground = message.IsMyMessage ? Brushes.White : Brushes.Black,
+                    FontSize = 14,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 4)
+                };
+                contentPanel.Children.Add(textBlock);
+            }
+
+            // Время отправки
+            var timePanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = message.IsMyMessage ? HorizontalAlignment.Right : HorizontalAlignment.Left
+            };
+
+            var timeText = new TextBlock
+            {
+                Text = message.Time.ToString("HH:mm"),
+                FontSize = 11,
+                Foreground = message.IsMyMessage ?
+                    new SolidColorBrush(Color.FromArgb(180, 255, 255, 255)) :
+                    new SolidColorBrush(Color.FromArgb(180, 102, 102, 102))
+            };
+            timePanel.Children.Add(timeText);
+
+            // Галочка прочтения (только для моих сообщений)
+            if (message.IsMyMessage)
+            {
+                var readIcon = new TextBlock
+                {
+                    Text = "✓✓",
+                    FontSize = 11,
+                    Foreground = new SolidColorBrush(Color.FromArgb(180, 255, 255, 255)),
+                    Margin = new Thickness(4, 0, 0, 0)
+                };
+                timePanel.Children.Add(readIcon);
+            }
+
+            contentPanel.Children.Add(timePanel);
+            grid.Children.Add(contentPanel);
+
+            border.Child = grid;
+            return border;
+        }
+
+
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+public static class FileManager
+    {
+        private static readonly string AppDataPath = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "NikitaMessenger",
+            "Files");
+
+        private static readonly string ImagesPath = System.IO.Path.Combine(AppDataPath, "Images");
+        private static readonly string FilesPath = System.IO.Path.Combine(AppDataPath, "Documents");
+
+        static FileManager()
+        {
+            Directory.CreateDirectory(ImagesPath);
+            Directory.CreateDirectory(FilesPath);
+        }
+
+        public static string SaveImage(string sourcePath)
+        {
+            try
+            {
+                string fileName = $"img_{Guid.NewGuid():N}{System.IO.Path.GetExtension(sourcePath)}";
+                string destinationPath = System.IO.Path.Combine(ImagesPath, fileName);
+
+                File.Copy(sourcePath, destinationPath, true);
+                return destinationPath;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка сохранения изображения: {ex.Message}");
+                return null;
+            }
+        }
+
+        public static string SaveFile(string sourcePath)
+        {
+            try
+            {
+                string fileName = System.IO.Path.GetFileName(sourcePath);
+                string destinationPath = System.IO.Path.Combine(FilesPath, fileName);
+
+                int counter = 1;
+                while (File.Exists(destinationPath))
+                {
+                    string nameWithoutExt = System.IO.Path.GetFileNameWithoutExtension(fileName);
+                    string ext = System.IO.Path.GetExtension(fileName);
+                    fileName = $"{nameWithoutExt}_{counter}{ext}";
+                    destinationPath = System.IO.Path.Combine(FilesPath, fileName);
+                    counter++;
+                }
+
+                File.Copy(sourcePath, destinationPath, true);
+                return destinationPath;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка сохранения файла: {ex.Message}");
+                return null;
+            }
+        }
+
+        public static void OpenFile(string filePath)
+        {
+            try
+            {
+                if (File.Exists(filePath))
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = filePath,
+                        UseShellExecute = true
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка открытия файла: {ex.Message}");
+            }
+        }
+
+        public static void OpenContainingFolder(string filePath)
+        {
+            try
+            {
+                if (File.Exists(filePath))
+                {
+                    System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{filePath}\"");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка открытия папки: {ex.Message}");
+            }
+        }
+
+        public static long GetFileSize(string filePath)
+        {
+            try
+            {
+                if (File.Exists(filePath))
+                {
+                    return new FileInfo(filePath).Length;
+                }
+            }
+            catch
+            {
+                // Игнорируем ошибки
+            }
+            return 0;
+        }
+
+        public static string FormatFileSize(long bytes)
+        {
+            if (bytes <= 0) return "0 B";
+
+            string[] sizes = { "B", "KB", "MB", "GB" };
+            int order = 0;
+            double len = bytes;
+
+            while (len >= 1024 && order < sizes.Length - 1)
+            {
+                order++;
+                len /= 1024;
+            }
+
+            return $"{len:0.#} {sizes[order]}";
+        }
+
+        public static string GetFileIcon(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName)) return "📄";
+
+            var ext = System.IO.Path.GetExtension(fileName)?.ToLower();
+            return ext switch
+            {
+                ".pdf" => "📕",
+                ".doc" or ".docx" => "📘",
+                ".xls" or ".xlsx" => "📊",
+                ".ppt" or ".pptx" => "📽",
+                ".zip" or ".rar" or ".7z" => "🗜",
+                ".exe" => "⚙",
+                ".mp3" or ".wav" or ".flac" => "🎵",
+                ".mp4" or ".avi" or ".mkv" => "🎬",
+                ".jpg" or ".jpeg" or ".png" or ".bmp" or ".gif" => "🖼",
+                ".txt" => "📝",
+                _ => "📄"
+            };
+        }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 }

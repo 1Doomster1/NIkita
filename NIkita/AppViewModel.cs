@@ -12,6 +12,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
 using NIkita;
+using NikitaMicrosoft;
 
 namespace NikitaMessenger
 {
@@ -154,115 +155,6 @@ namespace NikitaMessenger
             DownloadFileCommand = new RelayCommand<Message>(DownloadFile);
             StartPrivateChatCommand = new RelayCommand<UserModel>(StartPrivateChat);
             ChangeAvatarCommand = new RelayCommand(ChangeAvatar);
-
-            InitializeTestData();
-        }
-
-        private void InitializeTestData(NikitaDbContext context)
-        {
-            // Загружаем сохраненный аватар
-            try
-            {
-                if (File.Exists("avatar.txt"))
-                {
-                    AvatarPath = File.ReadAllText("avatar.txt");
-                }
-            }
-            catch { }
-
-            var chat1 = new ChatModel
-            {
-                Id = "1",
-                Name = "Алексей",
-                LastMessage = "Привет! Как дела?",
-                LastMessageTime = DateTime.Now.AddMinutes(-30),
-                IsOnline = true,
-                UnreadCount = 2
-            };
-
-            var chat2 = new ChatModel
-            {
-                Id = "2",
-                Name = "Мария",
-                LastMessage = "Отправлю файл завтра",
-                LastMessageTime = DateTime.Now.AddHours(-2),
-                IsOnline = false,
-                UnreadCount = 0
-            };
-
-            var chat3 = new ChatModel
-            {
-                Id = "general",
-                Name = "Общий чат",
-                LastMessage = "Добро пожаловать в общий чат!",
-                LastMessageTime = DateTime.Now.AddDays(-1),
-                IsOnline = true,
-                UnreadCount = 5
-            };
-
-            //var message2 = new Message
-            //{
-            //    Id = "2",
-            //    Sender = Username,
-            //    Content = "Привет! Как дела?",
-            //    Timestamp = DateTime.Now.AddMinutes(-30),
-            //    IsMyMessage = true,
-            //    Type = MessageType.Text,
-            //    Status = MessageStatus.Delivered
-            //};
-
-            //context.messages.AddRange(message1, message2);
-
-
-            //// Тестовые чаты
-            //var chat1 = new Chat
-            //{
-            //    Id = "1",
-            //    Name = "Алексей",
-            //    LastMessage = "Привет! Как дела?",
-            //    LastMessageTime = DateTime.Now.AddMinutes(-30),
-            //    IsOnline = true,
-            //    UnreadCount = 2,
-            //    Messages = {message1}
-            //};
-
-            //var chat2 = new Chat
-            //{
-            //    Id = "2",
-            //    Name = "Мария",
-            //    LastMessage = "Отправлю файл завтра",
-            //    LastMessageTime = DateTime.Now.AddHours(-2),
-            //    IsOnline = false,
-            //    UnreadCount = 0,
-            //    Messages = {message2}
-            //};
-
-            chat1.Messages.Add(new Message
-            {
-                Id = "1",
-                Sender = "Алексей",
-                Content = "Привет!",
-                Timestamp = DateTime.Now.AddMinutes(-45),
-                IsMyMessage = false,
-                Type = MessageType.Text,
-                Status = MessageStatus.Read
-            });
-
-            //context.chats.Add(chat1);
-            //context.chats.Add(chat2);
-            //context.chats.Add(chat3);
-            //context.SaveChanges();
-            foreach (var chat in context.chats)
-            {
-                Chats.Add(chat);
-            }
-
-            // Тестовые пользователи
-            OnlineUsers.Add(new UserModel { Id = "1", Username = "Алексей", IsOnline = true });
-            OnlineUsers.Add(new UserModel { Id = "2", Username = "Мария", IsOnline = false });
-            OnlineUsers.Add(new UserModel { Id = "3", Username = "Иван", IsOnline = true });
-            OnlineUsers.Add(new UserModel { Id = "4", Username = "Ольга", IsOnline = true });
-            OnlineUsers.Add(new UserModel { Id = "5", Username = "Дмитрий", IsOnline = false });
         }
 
         public async Task ConnectToServerAsync()
@@ -317,7 +209,7 @@ namespace NikitaMessenger
             }
         }
 
-        private async Task SendMessageAsync()
+        private async Task SendMessageAsync(NikitaDbContext context)
         {
             if (string.IsNullOrWhiteSpace(MessageText) || SelectedChat == null)
                 return;
