@@ -136,6 +136,8 @@ namespace NikitaMessenger
             }
         }
 
+        public string ChatId { get; internal set; }
+
         public event PropertyChangedEventHandler PropertyChanged;
 
         protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
