@@ -1,91 +1,1942 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Shapes;
+using System.Windows.Threading;
+using Microsoft.Win32;
+using NIkita;
 
-namespace NikitaMicrosoft
+namespace NikitaMessenger
 {
     public partial class MainWindow : Window
     {
+        // Модель сообщения
+        public class Message
+        {
+            public string Id { get; set; }
+            public string Text { get; set; }
+            public string Sender { get; set; }
+            public DateTime Time { get; set; }
+            public bool IsMyMessage { get; set; }
+            public string AvatarText { get; set; }
+            public Brush AvatarColor { get; set; }
+            public string ChatId { get; set; }
+        }
+
+        // Модель чата
+        public class Chat
+        {
+            public string Id { get; set; }
+            public string Name { get; set; }
+            public string LastMessage { get; set; }
+            public DateTime LastMessageTime { get; set; }
+            public bool IsOnline { get; set; }
+            public int UnreadCount { get; set; }
+            public string AvatarText { get; set; }
+            public Brush AvatarColor { get; set; }
+            public List<Message> Messages { get; set; } = new List<Message>();
+            public bool IsGroupChat { get; set; }
+            public List<string> Participants { get; set; } = new List<string>();
+        }
+
+        // Модель пользователя
+        public class User
+        {
+            public string Id { get; set; }
+            public string Name { get; set; }
+            public bool IsOnline { get; set; }
+            public string AvatarText { get; set; }
+            public Brush AvatarColor { get; set; }
+        }
+
+        // Коллекции данных
+        private List<Chat> chats = new List<Chat>();
+        private List<User> onlineUsers = new List<User>();
+        private Chat currentChat = null;
+        private Random random = new Random();
+        private bool isConnected = false;
+
+        // Сетевой клиент
+        private NetworkClient networkClient = new NetworkClient();
+        private string currentUserId = Guid.NewGuid().ToString();
+
+        // Цвета для аватаров
+        private Brush[] avatarColors = new Brush[]
+        {
+            new SolidColorBrush(Color.FromRgb(0, 132, 255)),   
+            new SolidColorBrush(Color.FromRgb(76, 175, 80)),   
+            new SolidColorBrush(Color.FromRgb(255, 87, 34)),   
+            new SolidColorBrush(Color.FromRgb(156, 39, 176)),  
+            new SolidColorBrush(Color.FromRgb(233, 30, 99)),    
+            new SolidColorBrush(Color.FromRgb(33, 150, 243)),   
+            new SolidColorBrush(Color.FromRgb(255, 193, 7)),    
+            new SolidColorBrush(Color.FromRgb(0, 150, 136))     
+        };
+
         public MainWindow()
         {
             InitializeComponent();
-            var context = new NikitaDbContext();
-            DataContext = new AppViewModel(context);
+            InitializeNetworkEvents();
+            UpdateOnlineUsersCount();
+            UpdateChatsList();
+        }
 
-            if (DataContext is AppViewModel vm)
-            {
-                vm.MessageAdded += (sender, e) => ScrollToBottom();
-            }
+        private void InitializeNetworkEvents()
+        {
+            networkClient.MessageReceived += OnMessageReceived;
+            networkClient.UserConnected += OnUserConnected;
+            networkClient.UserDisconnected += OnUserDisconnected;
+            networkClient.ConnectionStatusChanged += OnConnectionStatusChanged;
+        }
 
-            // Автоподключение для теста
-            Loaded += async (s, e) =>
+        private void OnUserConnected(string username)
+        {
+            Dispatcher.Invoke(() =>
             {
-                if (DataContext is AppViewModel viewModel)
+                // Добавляем пользователя в список онлайн
+                var existingUser = onlineUsers.FirstOrDefault(u => u.Name == username);
+                if (existingUser == null)
                 {
-                    await viewModel.ConnectToServerAsync();
+                    onlineUsers.Add(new User
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        Name = username,
+                        IsOnline = true,
+                        AvatarText = GetAvatarText(username),
+                        AvatarColor = GetRandomColor()
+                    });
                 }
-            };
-
-            Closing += (s, e) =>
-            {
-                if (DataContext is AppViewModel viewModel)
+                else
                 {
-                    viewModel.DisconnectFromServer();
+                    existingUser.IsOnline = true;
                 }
+
+                // Обновляем статус в чатах
+                foreach (var chat in chats.Where(c => c.Name == username))
+                {
+                    chat.IsOnline = true;
+                }
+
+                UpdateOnlineUsersList();
+                UpdateChatsList();
+
+                if (currentChat?.Name == username)
+                {
+                    ChatStatusText.Text = "онлайн";
+                    ChatStatusText.Foreground = new SolidColorBrush(Color.FromRgb(76, 175, 80));
+                }
+            });
+        }
+
+        private void OnUserDisconnected(string username)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                // Обновляем статус пользователя
+                var user = onlineUsers.FirstOrDefault(u => u.Name == username);
+                if (user != null)
+                {
+                    user.IsOnline = false;
+                }
+
+                // Обновляем статус в чатах
+                foreach (var chat in chats.Where(c => c.Name == username))
+                {
+                    chat.IsOnline = false;
+                }
+
+                UpdateOnlineUsersList();
+                UpdateChatsList();
+
+                if (currentChat?.Name == username)
+                {
+                    ChatStatusText.Text = "офлайн";
+                    ChatStatusText.Foreground = new SolidColorBrush(Color.FromRgb(153, 153, 153));
+                }
+            });
+        }
+
+        private void OnConnectionStatusChanged(bool isConnected)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                this.isConnected = isConnected;
+                ConnectButton.Content = isConnected ? "🔌" : "🔌";
+                ConnectButton.ToolTip = isConnected ? "Отключиться от сервера" : "Подключиться к серверу";
+
+                if (!isConnected)
+                {
+                    // При отключении обновляем все статусы
+                    foreach (var user in onlineUsers)
+                    {
+                        user.IsOnline = false;
+                    }
+
+                    foreach (var chat in chats)
+                    {
+                        chat.IsOnline = false;
+                    }
+
+                    UpdateOnlineUsersList();
+                    UpdateChatsList();
+
+                    if (currentChat != null)
+                    {
+                        ChatStatusText.Text = "офлайн";
+                        ChatStatusText.Foreground = new SolidColorBrush(Color.FromRgb(153, 153, 153));
+                    }
+                }
+            });
+        }
+
+        private string GetSenderFromMessage(string message)
+        {
+            // Извлекаем имя отправителя из сообщения имя"
+            var colonIndex = message.IndexOf(':');
+            return colonIndex > 0 ? message.Substring(0, colonIndex).Trim() : "Неизвестный";
+        }
+
+        private Chat CreateNewChatFromMessage(string chatId, string message)
+        {
+            var sender = GetSenderFromMessage(message);
+            return new Chat
+            {
+                Id = chatId,
+                Name = sender,
+                LastMessage = message,
+                LastMessageTime = DateTime.Now,
+                IsOnline = true,
+                UnreadCount = 1,
+                AvatarText = GetAvatarText(sender),
+                AvatarColor = GetRandomColor(),
+                IsGroupChat = false
             };
         }
 
-        private void ScrollToBottom()
+        private Brush GetRandomColor()
         {
-            Dispatcher.Invoke(new Action(() =>
+            return avatarColors[random.Next(avatarColors.Length)];
+        }
+
+        private void UpdateChatsList()
+        {
+            ChatsPanel.Children.Clear();
+
+            string searchText = SearchTextBox.Text.ToLower();
+
+            foreach (var chat in chats.Where(c =>
+                string.IsNullOrEmpty(searchText) ||
+                c.Name.ToLower().Contains(searchText)))
             {
-                MessagesScrollViewer?.ScrollToEnd();
-            }));
+                var chatItem = CreateChatItem(chat);
+                ChatsPanel.Children.Add(chatItem);
+            }
+        }
+
+        private Border CreateChatItem(Chat chat)
+        {
+            var border = new Border
+            {
+                Background = Brushes.White,
+                Padding = new Thickness(15),
+                Cursor = Cursors.Hand,
+                Tag = chat
+            };
+
+            border.MouseEnter += (s, e) =>
+            {
+                if (currentChat?.Id != chat.Id)
+                    border.Background = new SolidColorBrush(Color.FromRgb(245, 245, 245));
+            };
+
+            border.MouseLeave += (s, e) =>
+            {
+                if (currentChat?.Id != chat.Id)
+                    border.Background = Brushes.White;
+            };
+
+            border.MouseLeftButtonDown += (s, e) =>
+            {
+                border.Background = new SolidColorBrush(Color.FromRgb(235, 235, 235));
+            };
+
+            border.MouseLeftButtonUp += (s, e) =>
+            {
+                SelectChat(chat);
+                border.Background = new SolidColorBrush(Color.FromRgb(240, 240, 240));
+            };
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Auto) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Auto) });
+
+            // Аватар чата
+            var avatarBorder = new Border
+            {
+                Width = 50,
+                Height = 50,
+                CornerRadius = new CornerRadius(25),
+                Background = chat.AvatarColor,
+                Margin = new Thickness(0, 0, 15, 0)
+            };
+
+            var avatarText = new TextBlock
+            {
+                Text = chat.AvatarText,
+                Foreground = Brushes.White,
+                FontSize = 16,
+                FontWeight = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            avatarBorder.Child = avatarText;
+            Grid.SetColumn(avatarBorder, 0);
+            grid.Children.Add(avatarBorder);
+
+            // Информация о чате
+            var infoPanel = new StackPanel();
+            Grid.SetColumn(infoPanel, 1);
+            grid.Children.Add(infoPanel);
+
+            var nameRow = new StackPanel { Orientation = Orientation.Horizontal };
+            var nameText = new TextBlock
+            {
+                Text = chat.Name,
+                FontWeight = FontWeights.SemiBold,
+                FontSize = 14.5,
+                Foreground = Brushes.Black,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+            nameRow.Children.Add(nameText);
+
+            if (chat.IsOnline)
+            {
+                var onlineIndicator = new Ellipse
+                {
+                    Width = 8,
+                    Height = 8,
+                    Fill = new SolidColorBrush(Color.FromRgb(76, 175, 80)),
+                    Margin = new Thickness(6, 4, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                nameRow.Children.Add(onlineIndicator);
+            }
+
+            infoPanel.Children.Add(nameRow);
+
+            var lastMessageText = new TextBlock
+            {
+                Text = chat.LastMessage,
+                FontSize = 13,
+                Foreground = new SolidColorBrush(Color.FromRgb(102, 102, 102)),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(0, 2, 0, 0)
+            };
+            infoPanel.Children.Add(lastMessageText);
+
+            var rightPanel = new StackPanel();
+            Grid.SetColumn(rightPanel, 2);
+            grid.Children.Add(rightPanel);
+
+            var timeText = new TextBlock
+            {
+                Text = GetRelativeTime(chat.LastMessageTime),
+                FontSize = 12,
+                Foreground = new SolidColorBrush(Color.FromRgb(153, 153, 153)),
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
+            rightPanel.Children.Add(timeText);
+
+            if (chat.UnreadCount > 0)
+            {
+                var unreadBadge = new Border
+                {
+                    Background = new SolidColorBrush(Color.FromRgb(0, 132, 255)),
+                    CornerRadius = new CornerRadius(10),
+                    Padding = new Thickness(6, 2, 0, 0),
+                    Margin = new Thickness(0, 4, 0, 0),
+                    HorizontalAlignment = HorizontalAlignment.Right
+                };
+
+                var unreadText = new TextBlock
+                {
+                    Text = chat.UnreadCount.ToString(),
+                    Foreground = Brushes.White,
+                    FontSize = 11,
+                    FontWeight = FontWeights.Bold
+                };
+
+                unreadBadge.Child = unreadText;
+                rightPanel.Children.Add(unreadBadge);
+            }
+
+            border.Child = grid;
+            return border;
+        }
+
+        private void UpdateOnlineUsersList()
+        {
+            OnlineUsersPanel.Children.Clear();
+
+            foreach (var user in onlineUsers.Where(u => u.IsOnline))
+            {
+                var userItem = CreateUserItem(user);
+                OnlineUsersPanel.Children.Add(userItem);
+            }
+
+            UpdateOnlineUsersCount();
+        }
+
+        private Border CreateUserItem(User user)
+        {
+            var border = new Border
+            {
+                Background = Brushes.White,
+                Padding = new Thickness(10),
+                Cursor = Cursors.Hand,
+                CornerRadius = new CornerRadius(8),
+                Margin = new Thickness(0, 0, 0, 6),
+                Tag = user
+            };
+
+            border.MouseEnter += (s, e) =>
+            {
+                border.Background = new SolidColorBrush(Color.FromRgb(245, 245, 245));
+            };
+
+            border.MouseLeave += (s, e) =>
+            {
+                border.Background = Brushes.White;
+            };
+
+            border.MouseLeftButtonUp += (s, e) =>
+            {
+                // Открыть чат с пользователем или создать новый
+                var existingChat = chats.FirstOrDefault(c => c.Name == user.Name);
+                if (existingChat != null)
+                {
+                    SelectChat(existingChat);
+                }
+                else
+                {
+                    // Создать новый чат
+                    var newChat = new Chat
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        Name = user.Name,
+                        LastMessage = "",
+                        LastMessageTime = DateTime.Now,
+                        IsOnline = user.IsOnline,
+                        UnreadCount = 0,
+                        AvatarText = user.AvatarText,
+                        AvatarColor = user.AvatarColor,
+                        IsGroupChat = false
+                    };
+
+                    chats.Insert(0, newChat);
+                    UpdateChatsList();
+                    SelectChat(newChat);
+                }
+            };
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Auto) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Auto) });
+
+            // Аватар пользователя
+            var avatarBorder = new Border
+            {
+                Width = 40,
+                Height = 40,
+                CornerRadius = new CornerRadius(20),
+                Background = user.AvatarColor,
+                Margin = new Thickness(0, 0, 12, 0)
+            };
+
+            var avatarText = new TextBlock
+            {
+                Text = user.AvatarText,
+                Foreground = Brushes.White,
+                FontSize = 14,
+                FontWeight = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            avatarBorder.Child = avatarText;
+            Grid.SetColumn(avatarBorder, 0);
+            grid.Children.Add(avatarBorder);
+
+            // Имя пользователя
+            var namePanel = new StackPanel();
+            Grid.SetColumn(namePanel, 1);
+            grid.Children.Add(namePanel);
+
+            var nameText = new TextBlock
+            {
+                Text = user.Name,
+                FontWeight = FontWeights.Medium,
+                FontSize = 14,
+                Foreground = Brushes.Black,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            namePanel.Children.Add(nameText);
+
+            // Статус онлайн
+            var statusPanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(statusPanel, 2);
+            grid.Children.Add(statusPanel);
+
+            if (user.IsOnline)
+            {
+                var onlineText = new TextBlock
+                {
+                    Text = "онлайн",
+                    FontSize = 12,
+                    Foreground = new SolidColorBrush(Color.FromRgb(76, 175, 80)),
+                    Margin = new Thickness(0, 0, 8, 0)
+                };
+                statusPanel.Children.Add(onlineText);
+
+                var onlineDot = new Ellipse
+                {
+                    Width = 8,
+                    Height = 8,
+                    Fill = new SolidColorBrush(Color.FromRgb(76, 175, 80)),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                statusPanel.Children.Add(onlineDot);
+            }
+
+            border.Child = grid;
+            return border;
+        }
+
+        private void SelectChat(Chat chat)
+        {
+            currentChat = chat;
+
+            // Обновляем UI для выбранного чата
+            UpdateChatSelectionVisual();
+
+            // Показываем заголовок чата
+            ChatHeader.Visibility = Visibility.Visible;
+            MessagesBorder.Visibility = Visibility.Visible;
+            MessageInputBorder.Visibility = Visibility.Visible;
+            NoChatSelectedBorder.Visibility = Visibility.Collapsed;
+
+            // Обновляем информацию в заголовке
+            ChatNameText.Text = chat.Name;
+            ChatStatusText.Text = chat.IsOnline ? "онлайн" : "офлайн";
+            ChatStatusText.Foreground = chat.IsOnline ?
+                new SolidColorBrush(Color.FromRgb(76, 175, 80)) :
+                new SolidColorBrush(Color.FromRgb(153, 153, 153));
+
+            ChatAvatarText.Text = chat.AvatarText;
+            ChatAvatarBorder.Background = chat.AvatarColor;
+
+            // Очищаем непрочитанные сообщения
+            chat.UnreadCount = 0;
+            UpdateChatsList();
+
+            // Показываем сообщения
+            ShowMessages(chat);
+        }
+
+        private void UpdateChatSelectionVisual()
+        {
+            foreach (var child in ChatsPanel.Children)
+            {
+                if (child is Border border && border.Tag is Chat chat)
+                {
+                    if (chat.Id == currentChat?.Id)
+                    {
+                        border.Background = new SolidColorBrush(Color.FromRgb(240, 240, 240));
+                        border.BorderThickness = new Thickness(1);
+                        border.BorderBrush = new SolidColorBrush(Color.FromRgb(224, 224, 224));
+                    }
+                    else
+                    {
+                        border.Background = Brushes.White;
+                        border.BorderThickness = new Thickness(0);
+                    }
+                }
+            }
+        }
+
+        private void ShowMessages(Chat chat)
+        {
+            MessagesPanel.Children.Clear();
+
+            if (chat.Messages.Count == 0)
+            {
+                // Показываем сообщение о пустом чате
+                var emptyText = new TextBlock
+                {
+                    Text = "Нет сообщений\nНачните диалог первым!",
+                    Foreground = new SolidColorBrush(Color.FromRgb(153, 153, 153)),
+                    FontSize = 16,
+                    TextAlignment = TextAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 50, 0, 0)
+                };
+                MessagesPanel.Children.Add(emptyText);
+                return;
+            }
+
+            foreach (var message in chat.Messages.OrderBy(m => m.Time))
+            {
+                var messageControl = CreateMessageControl(message);
+                MessagesPanel.Children.Add(messageControl);
+            }
+
+            // Прокручиваем к последнему сообщению
+            MessagesScrollViewer.ScrollToBottom();
+        }
+
+        private string GetRelativeTime(DateTime time)
+        {
+            var span = DateTime.Now - time;
+
+            if (span.TotalMinutes < 1)
+                return "только что";
+            if (span.TotalMinutes < 60)
+                return $"{(int)span.TotalMinutes} мин назад";
+            if (span.TotalHours < 24)
+                return $"{(int)span.TotalHours} ч назад";
+            if (span.TotalDays < 7)
+                return $"{(int)span.TotalDays} дн назад";
+
+            return time.ToString("dd.MM.yy");
+        }
+
+        private void UpdateOnlineUsersCount()
+        {
+            OnlineUsersCountText.Text = $"({onlineUsers.Count(u => u.IsOnline)})";
+        }
+
+        private string GetAvatarText(string name)
+        {
+            var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2)
+                return $"{parts[0][0]}{parts[1][0]}".ToUpper();
+
+            return name.Length >= 2 ? name.Substring(0, 2).ToUpper() : name.ToUpper();
+        }
+
+        private async void ConnectButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (isConnected)
+            {
+                networkClient.Disconnect();
+                MessageBox.Show("Отключено от сервера", "Информация", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                // Запрашиваем имя пользователя
+                var dialog = new UsernameDialog();
+                if (dialog.ShowDialog() == true)
+                {
+                    var username = dialog.Username;
+
+                    // Показываем индикатор загрузки
+                    ConnectButton.Content = "⏳";
+                    ConnectButton.IsEnabled = false;
+
+                    try
+                    {
+                        // Подключаемся к серверу
+                        bool connected = await networkClient.ConnectAsync("127.0.0.1", 8888);
+
+                        if (connected)
+                        {
+                            // Логинимся
+                            await networkClient.LoginAsync(username);
+                            MessageBox.Show($"Подключено как {username}", "Успех", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                            // Обновляем имя пользователя в интерфейсе - СПОСОБ 1 (проще и надежнее)
+                            try
+                            {
+                                // Ищем TextBlock с именем пользователя в левой панели
+                                UpdateUsernameInUI(username);
+                            }
+                            catch (Exception uiEx)
+                            {
+                                Console.WriteLine($"Не удалось обновить имя в UI: {uiEx.Message}");
+                                // Это не критичная ошибка, продолжаем работу
+                            }
+
+                            // Обновляем аватар
+                            UpdateUserAvatarInUI(username);
+                        }
+                        else
+                        {
+                            MessageBox.Show("Не удалось подключиться к серверу", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Ошибка подключения: {ex.Message}", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                    }
+                    finally
+                    {
+                        ConnectButton.IsEnabled = true;
+                        if (isConnected)
+                        {
+                            ConnectButton.Content = "🔌";
+                            ConnectButton.ToolTip = "Отключиться от сервера";
+                        }
+                        else
+                        {
+                            ConnectButton.Content = "🔌";
+                            ConnectButton.ToolTip = "Подключиться к серверу";
+                        }
+                    }
+                }
+            }
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        private void UpdateUsernameInUI(string username)
+        {
+            try
+            {
+                // Ищем StackPanel с информацией о пользователе
+                var leftPanel = FindVisualChild<StackPanel>(this, "LeftPanelInfo");
+                if (leftPanel != null && leftPanel.Children.Count > 0)
+                {
+                    // Предполагаем, что первый TextBlock - это имя пользователя
+                    if (leftPanel.Children[0] is TextBlock nameTextBlock)
+                    {
+                        nameTextBlock.Text = username;
+                        return;
+                    }
+                }
+
+                // Альтернативный способ - поиск по имени
+                var nameText = FindVisualChild<TextBlock>(this, "UserNameText");
+                if (nameText != null)
+                {
+                    nameText.Text = username;
+                    return;
+                }
+
+                // Если не нашли, просто выведем в консоль
+                Console.WriteLine($"Имя пользователя установлено: {username} (UI не обновлено)");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка обновления имени в UI: {ex.Message}");
+            }
+        }
+
+        private T FindVisualChild<T>(DependencyObject parent, string childName = null) where T : DependencyObject
+        {
+            if (parent == null) return null;
+
+            int childrenCount = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < childrenCount; i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+
+                if (child is T result)
+                {
+                    if (childName == null || (child is FrameworkElement fe && fe.Name == childName))
+                    {
+                        return result;
+                    }
+                }
+
+                var childResult = FindVisualChild<T>(child, childName);
+                if (childResult != null)
+                {
+                    return childResult;
+                }
+            }
+            return null;
+        }
+
+        // Метод для обновления аватара в UI
+        private void UpdateUserAvatarInUI(string username)
+        {
+            try
+            {
+                if (AvatarButton.Content is Border border)
+                {
+                    // Если в Border есть TextBlock (текстовый аватар)
+                    if (border.Child is Grid grid && grid.Children.Count > 0)
+                    {
+                        if (grid.Children[0] is TextBlock textBlock)
+                        {
+                            textBlock.Text = GetAvatarText(username);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка обновления аватара: {ex.Message}");
+            }
+        }
+
+        private async void NewChatButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (!isConnected)
+            {
+                MessageBox.Show("Сначала подключитесь к серверу", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var dialog = new NewChatWindow(onlineUsers.Where(u => u.IsOnline).Select(u => u.Name).ToList());
+            if (dialog.ShowDialog() == true)
+            {
+                var chatId = Guid.NewGuid().ToString();
+                var newChat = new Chat
+                {
+                    Id = chatId,
+                    Name = dialog.ChatName,
+                    LastMessage = "Чат создан",
+                    LastMessageTime = DateTime.Now,
+                    IsOnline = true,
+                    UnreadCount = 0,
+                    AvatarText = GetAvatarText(dialog.ChatName),
+                    AvatarColor = GetRandomColor(),
+                    IsGroupChat = dialog.IsGroupChat,
+                    Participants = dialog.SelectedUsers
+                };
+
+                chats.Insert(0, newChat);
+                UpdateChatsList();
+                SelectChat(newChat);
+
+                // Отправляем уведомление о создании чата
+                if (networkClient.IsConnected && dialog.SelectedUsers.Any())
+                {
+                    foreach (var user in dialog.SelectedUsers)
+                    {
+                        await networkClient.SendMessageAsync(chatId, $"Чат '{dialog.ChatName}' создан. Присоединился: {user}");
+                    }
+                }
+            }
+        }
+
+        private void SearchTextBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            UpdateChatsList();
+            ClearSearchButton.Visibility = string.IsNullOrEmpty(SearchTextBox.Text) ?
+                Visibility.Collapsed : Visibility.Visible;
+        }
+
+        private void ClearSearchButton_Click(object sender, RoutedEventArgs e)
+        {
+            SearchTextBox.Text = "";
+            SearchTextBox.Focus();
+        }
+
+        // Обновленный SendMessage для отправки через сеть
+        private async void SendMessage()
+        {
+            if (currentChat == null || string.IsNullOrWhiteSpace(MessageTextBox.Text))
+                return;
+
+            if (!networkClient.IsConnected)
+            {
+                MessageBox.Show("Нет подключения к серверу", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var messageText = MessageTextBox.Text.Trim();
+
+            // Создаем локальное сообщение
+            var message = new Message
+            {
+                Id = Guid.NewGuid().ToString(),
+                Text = messageText,
+                Sender = "Я",
+                Time = DateTime.Now,
+                IsMyMessage = true,
+                AvatarText = "U1",
+                AvatarColor = new SolidColorBrush(Color.FromRgb(0, 132, 255)),
+                ChatId = currentChat.Id
+            };
+
+            // Добавляем в текущий чат
+            currentChat.Messages.Add(message);
+            currentChat.LastMessage = messageText;
+            currentChat.LastMessageTime = DateTime.Now;
+
+            // Обновляем UI
+            ShowMessages(currentChat);
+            UpdateChatsList();
+
+            // Отправляем через сеть
+            await networkClient.SendMessageAsync(currentChat.Id, messageText);
+
+            // Очищаем поле ввода
+            MessageTextBox.Text = "";
+            MessageTextBox.Focus();
         }
 
         private void MessageTextBox_PreviewKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == Key.Enter && Keyboard.Modifiers != ModifierKeys.Shift)
+            if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Shift) != ModifierKeys.Shift)
             {
                 e.Handled = true;
-                if (DataContext is AppViewModel vm && vm.CanSendMessage)
+                SendMessage();
+            }
+        }
+
+        private void SendButton_Click(object sender, RoutedEventArgs e)
+        {
+            SendMessage();
+        }
+
+        private void AvatarButton_Click(object sender, RoutedEventArgs e)
+        {
+            var openFileDialog = new OpenFileDialog
+            {
+                Filter = "Image files (*.jpg;*.jpeg;*.png;*.bmp)|*.jpg;*.jpeg;*.png;*.bmp",
+                Title = "Выберите аватар"
+            };
+
+            if (openFileDialog.ShowDialog() == true)
+            {
+                try
                 {
-                    vm.SendMessageCommand.Execute(null);
+                    // Загружаем изображение
+                    var imageSource = new BitmapImage();
+                    imageSource.BeginInit();
+                    imageSource.UriSource = new Uri(openFileDialog.FileName);
+                    imageSource.CacheOption = BitmapCacheOption.OnLoad;
+                    imageSource.EndInit();
+
+                    // Создаем новый элемент для отображения картинки вместо текста
+                    var imageBorder = new Border
+                    {
+                        Width = 48,
+                        Height = 48,
+                        CornerRadius = new CornerRadius(24),
+                        Background = new ImageBrush(imageSource)
+                        {
+                            Stretch = Stretch.UniformToFill
+                        },
+                        ClipToBounds = true
+                    };
+
+                    // Заменяем содержимое кнопки аватара
+                    AvatarButton.Content = imageBorder;
+
+                    // Сохраняем путь к аватару в локальной переменной
+                    string avatarPath = openFileDialog.FileName;
+
+                    // Можно сохранить в файл или просто использовать в текущей сессии
+                    // Для сохранения между запусками можно использовать файл в AppData
+                    SaveAvatarToFile(imageSource, avatarPath);
+
+                    // Обновляем аватар во всех сообщениях пользователя
+                    UpdateUserAvatar(imageSource);
+
+                    MessageBox.Show("Аватар успешно изменен!",
+                        "Аватар", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Ошибка загрузки аватара: {ex.Message}",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
         }
 
-        private void ChatItem_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        private void SaveAvatarToFile(BitmapImage image, string sourcePath)
         {
-            if (sender is Border border && border.DataContext is Chat chat)
+            try
             {
-                if (DataContext is AppViewModel vm)
+                // Создаем папку для аватаров в AppData, если её нет
+                string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                string appFolder = System.IO.Path.Combine(appDataPath, "NikitaMessenger");
+                string avatarFile = System.IO.Path.Combine(appFolder, "avatar.png");
+
+                Directory.CreateDirectory(appFolder);
+
+                // Копируем файл
+                File.Copy(sourcePath, avatarFile, true);
+            }
+            catch (Exception ex)
+            {
+                // Не критичная ошибка, просто логируем
+                Console.WriteLine($"Не удалось сохранить аватар: {ex.Message}");
+            }
+        }
+
+        private void LoadAvatarOnStartup()
+        {
+            try
+            {
+                string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                string appFolder = System.IO.Path.Combine(appDataPath, "NikitaMessenger");
+                string avatarFile = System.IO.Path.Combine(appFolder, "avatar.png");
+
+                if (File.Exists(avatarFile))
                 {
-                    vm.SelectChat(chat);
+                    var imageSource = new BitmapImage();
+                    imageSource.BeginInit();
+                    imageSource.UriSource = new Uri(avatarFile);
+                    imageSource.CacheOption = BitmapCacheOption.OnLoad;
+                    imageSource.EndInit();
+
+                    var imageBorder = new Border
+                    {
+                        Width = 48,
+                        Height = 48,
+                        CornerRadius = new CornerRadius(24),
+                        Background = new ImageBrush(imageSource)
+                        {
+                            Stretch = Stretch.UniformToFill
+                        },
+                        ClipToBounds = true
+                    };
+
+                    AvatarButton.Content = imageBorder;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Не удалось загрузить аватар: {ex.Message}");
+            }
+        }
+
+        private void UpdateUserAvatar(ImageSource newAvatar)
+        {
+            // Просто перерисовываем сообщения, если чат активен
+            if (currentChat != null && ChatHeader.Visibility == Visibility.Visible)
+            {
+                ShowMessages(currentChat);
+            }
+        }
+
+        private void CallButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (currentChat != null)
+            {
+                MessageBox.Show($"Звонок пользователю {currentChat.Name}",
+                    "Звонок", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+
+        private void MoreButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (currentChat != null)
+            {
+                var menu = new ContextMenu();
+
+                var clearHistoryItem = new MenuItem { Header = "Очистить историю" };
+                clearHistoryItem.Click += (s, args) =>
+                {
+                    if (MessageBox.Show("Очистить историю переписки?", "Подтверждение",
+                        MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                    {
+                        currentChat.Messages.Clear();
+                        currentChat.LastMessage = "";
+                        ShowMessages(currentChat);
+                        UpdateChatsList();
+                    }
+                };
+
+                var deleteChatItem = new MenuItem { Header = "Удалить чат" };
+                deleteChatItem.Click += (s, args) =>
+                {
+                    if (MessageBox.Show("Удалить этот чат?", "Подтверждение",
+                        MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
+                    {
+                        chats.Remove(currentChat);
+                        currentChat = null;
+                        UpdateChatsList();
+
+                        // Скрываем панель чата
+                        ChatHeader.Visibility = Visibility.Collapsed;
+                        MessagesBorder.Visibility = Visibility.Collapsed;
+                        MessageInputBorder.Visibility = Visibility.Collapsed;
+                        NoChatSelectedBorder.Visibility = Visibility.Visible;
+                    }
+                };
+
+                menu.Items.Add(clearHistoryItem);
+                menu.Items.Add(new Separator());
+                menu.Items.Add(deleteChatItem);
+
+                menu.PlacementTarget = sender as Button;
+                menu.IsOpen = true;
+            }
+        }
+
+        private void MessageTextBox_GotFocus(object sender, RoutedEventArgs e)
+        {
+            var textBox = sender as TextBox;
+            if (textBox.Text == "" && textBox.Foreground.ToString() == "#FF999999")
+            {
+                textBox.Text = "";
+                textBox.Foreground = new SolidColorBrush(Color.FromRgb(51, 51, 51));
+            }
+        }
+
+        private void MessageTextBox_LostFocus(object sender, RoutedEventArgs e)
+        {
+            var textBox = sender as TextBox;
+            if (string.IsNullOrWhiteSpace(textBox.Text))
+            {
+                textBox.Foreground = new SolidColorBrush(Color.FromRgb(153, 153, 153));
+            }
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        private async void AttachFileButton_Click(object sender, RoutedEventArgs e)
+        {
+            var openFileDialog = new OpenFileDialog
+            {
+                Title = "Выберите файл для отправки",
+                Filter = "Все файлы (*.*)|*.*|" +
+                        "Документы (*.pdf;*.doc;*.docx;*.xls;*.xlsx;*.txt)|*.pdf;*.doc;*.docx;*.xls;*.xlsx;*.txt|" +
+                        "Изображения (*.jpg;*.jpeg;*.png;*.bmp;*.gif)|*.jpg;*.jpeg;*.png;*.bmp;*.gif|" +
+                        "Архивы (*.zip;*.rar;*.7z)|*.zip;*.rar;*.7z|" +
+                        "Аудио (*.mp3;*.wav;*.flac)|*.mp3;*.wav;*.flac|" +
+                        "Видео (*.mp4;*.avi;*.mkv)|*.mp4;*.avi;*.mkv",
+                Multiselect = false
+            };
+
+            if (openFileDialog.ShowDialog() == true)
+            {
+                var filePath = openFileDialog.FileName;
+                var fileInfo = new FileInfo(filePath);
+
+                // Проверяем размер файла (макс 100 МБ)
+                if (fileInfo.Length > 100 * 1024 * 1024)
+                {
+                    MessageBox.Show("Файл слишком большой. Максимальный размер: 100 МБ",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                // Определяем тип файла
+                var ext = System.IO.Path.GetExtension(filePath).ToLower();
+                var imageExtensions = new[] { ".jpg", ".jpeg", ".png", ".bmp", ".gif" };
+
+                if (imageExtensions.Contains(ext))
+                {
+                    await SendImage(filePath);
+                }
+                else
+                {
+                    await SendFile(filePath);
                 }
             }
         }
 
-        private void UserItem_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        private async void AttachImageButton_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is Border border && border.DataContext is User user)
+            var openFileDialog = new OpenFileDialog
             {
-                if (DataContext is AppViewModel vm)
-                {
-                    vm.StartPrivateChatCommand.Execute(user);
-                }
+                Title = "Выберите изображение",
+                Filter = "Изображения (*.jpg;*.jpeg;*.png;*.bmp;*.gif)|*.jpg;*.jpeg;*.png;*.bmp;*.gif",
+                Multiselect = false
+            };
+
+            if (openFileDialog.ShowDialog() == true)
+            {
+                await SendImage(openFileDialog.FileName);
             }
         }
 
-        private void MessageTextBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        // Метод отправки файла
+        private async Task SendFile(string filePath)
         {
-            // Автоматическое изменение высоты TextBox
-            if (sender is System.Windows.Controls.TextBox textBox)
+            if (currentChat == null || string.IsNullOrEmpty(filePath))
+                return;
+
+            if (!networkClient.IsConnected)
             {
-                textBox.Height = textBox.LineCount * 24 + 10;
+                MessageBox.Show("Нет подключения к серверу", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            try
+            {
+                // Сохраняем файл в локальное хранилище
+                string savedPath = FileManager.SaveFile(filePath);
+                if (string.IsNullOrEmpty(savedPath))
+                    return;
+
+                var fileName = System.IO.Path.GetFileName(filePath);
+                var fileSize = FileManager.GetFileSize(savedPath);
+
+                // Формируем специальное сообщение для файла
+                string fileMessage = $"[FILE]:{fileName}|{fileSize}|{savedPath}";
+
+                // Создаем локальное сообщение
+                var message = new Message
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    Text = $"📎 Файл: {fileName} ({FileManager.FormatFileSize(fileSize)})",
+                    Sender = "Я",
+                    Time = DateTime.Now,
+                    IsMyMessage = true,
+                    AvatarText = "U1",
+                    AvatarColor = new SolidColorBrush(Color.FromRgb(0, 132, 255)),
+                    ChatId = currentChat.Id
+                };
+
+                // Добавляем в текущий чат
+                currentChat.Messages.Add(message);
+                currentChat.LastMessage = $"📎 {fileName}";
+                currentChat.LastMessageTime = DateTime.Now;
+
+                // Обновляем UI
+                ShowMessages(currentChat);
+                UpdateChatsList();
+
+                // Отправляем через сеть
+                await networkClient.SendMessageAsync(currentChat.Id, fileMessage);
+
+                MessageBox.Show($"Файл \"{fileName}\" отправлен",
+                    "Файл", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка отправки файла: {ex.Message}",
+                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+
+        // Метод отправки изображения
+        private async Task SendImage(string imagePath)
+        {
+            if (currentChat == null || string.IsNullOrEmpty(imagePath))
+                return;
+
+            if (!networkClient.IsConnected)
+            {
+                MessageBox.Show("Нет подключения к серверу", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            try
+            {
+                // Проверяем размер изображения (макс 20 МБ)
+                var fileInfo = new FileInfo(imagePath);
+                if (fileInfo.Length > 20 * 1024 * 1024)
+                {
+                    MessageBox.Show("Изображение слишком большое. Максимальный размер: 20 МБ",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                // Сохраняем изображение
+                string savedPath = FileManager.SaveImage(imagePath);
+                if (string.IsNullOrEmpty(savedPath))
+                    return;
+
+                var fileName = System.IO.Path.GetFileName(imagePath);
+
+                // Формируем специальное сообщение для изображения
+                string imageMessage = $"[IMAGE]:{fileName}|{savedPath}";
+
+                // Создаем локальное сообщение
+                var message = new Message
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    Text = $"🖼 Изображение: {fileName}",
+                    Sender = "Я",
+                    Time = DateTime.Now,
+                    IsMyMessage = true,
+                    AvatarText = "U1",
+                    AvatarColor = new SolidColorBrush(Color.FromRgb(0, 132, 255)),
+                    ChatId = currentChat.Id
+                };
+
+                // Добавляем в текущий чат
+                currentChat.Messages.Add(message);
+                currentChat.LastMessage = "🖼 Изображение";
+                currentChat.LastMessageTime = DateTime.Now;
+
+                // Обновляем UI
+                ShowMessages(currentChat);
+                UpdateChatsList();
+
+                // Отправляем через сеть
+                await networkClient.SendMessageAsync(currentChat.Id, imageMessage);
+
+                // Показываем превью
+                ShowImagePreview(savedPath);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка отправки изображения: {ex.Message}",
+                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        // Метод для отображения превью изображения
+        private void ShowImagePreview(string imagePath)
+        {
+            try
+            {
+                var previewWindow = new Window
+                {
+                    Title = "Предпросмотр изображения",
+                    Width = 600,
+                    Height = 500,
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                    Owner = this,
+                    ResizeMode = ResizeMode.CanResizeWithGrip,
+                    WindowStyle = WindowStyle.ToolWindow
+                };
+
+                var image = new Image
+                {
+                    Source = new BitmapImage(new Uri(imagePath)),
+                    Stretch = Stretch.Uniform,
+                    Margin = new Thickness(10)
+                };
+
+                var scrollViewer = new ScrollViewer
+                {
+                    Content = image,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Auto
+                };
+
+                previewWindow.Content = scrollViewer;
+                previewWindow.Show();
+            }
+            catch
+            {
+                // Игнорируем ошибки превью
+            }
+        }
+
+        // Метод для сохранения файла на диск
+        public void SaveFileToDisk(Message message, string content)
+        {
+            if (message == null || string.IsNullOrEmpty(content))
+                return;
+
+            try
+            {
+                // Парсим информацию о файле из сообщения
+                if (content.StartsWith("[FILE]:"))
+                {
+                    var parts = content.Substring(7).Split('|');
+                    if (parts.Length >= 3)
+                    {
+                        var fileName = parts[0];
+                        var fileSize = long.TryParse(parts[1], out var size) ? size : 0;
+                        var filePath = parts[2];
+
+                        var saveFileDialog = new SaveFileDialog
+                        {
+                            FileName = fileName,
+                            Title = "Сохранить файл",
+                            Filter = "Все файлы (*.*)|*.*"
+                        };
+
+                        if (saveFileDialog.ShowDialog() == true)
+                        {
+                            File.Copy(filePath, saveFileDialog.FileName, true);
+                            MessageBox.Show($"Файл сохранен: {saveFileDialog.FileName}",
+                                "Сохранено", MessageBoxButton.OK, MessageBoxImage.Information);
+                        }
+                    }
+                }
+                else if (content.StartsWith("[IMAGE]:"))
+                {
+                    var parts = content.Substring(8).Split('|');
+                    if (parts.Length >= 2)
+                    {
+                        var fileName = parts[0];
+                        var imagePath = parts[1];
+
+                        var saveFileDialog = new SaveFileDialog
+                        {
+                            FileName = fileName,
+                            Title = "Сохранить изображение",
+                            Filter = "Изображения (*.jpg;*.jpeg;*.png;*.bmp;*.gif)|*.jpg;*.jpeg;*.png;*.bmp;*.gif"
+                        };
+
+                        if (saveFileDialog.ShowDialog() == true)
+                        {
+                            File.Copy(imagePath, saveFileDialog.FileName, true);
+                            MessageBox.Show($"Изображение сохранено: {saveFileDialog.FileName}",
+                                "Сохранено", MessageBoxButton.OK, MessageBoxImage.Information);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка сохранения файла: {ex.Message}",
+                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        // ОБНОВЛЕННЫЙ метод OnMessageReceived для обработки файлов
+        private void OnMessageReceived(string chatId, string content)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                // Ищем чат по ID
+                var chat = chats.FirstOrDefault(c => c.Id == chatId);
+                if (chat == null)
+                {
+                    chat = CreateNewChatFromMessage(chatId, content);
+                    chats.Insert(0, chat);
+                    UpdateChatsList();
+                }
+
+                Message newMessage;
+
+                // Проверяем, является ли сообщение файлом или изображением
+                if (content.StartsWith("[FILE]:"))
+                {
+                    var parts = content.Substring(7).Split('|');
+                    if (parts.Length >= 3)
+                    {
+                        var fileName = parts[0];
+                        var fileSize = long.TryParse(parts[1], out var size) ? size : 0;
+                        var filePath = parts[2];
+
+                        newMessage = new Message
+                        {
+                            Id = Guid.NewGuid().ToString(),
+                            Text = $"📎 Файл: {fileName} ({FileManager.FormatFileSize(fileSize)})",
+                            Sender = GetSenderFromMessage(content),
+                            Time = DateTime.Now,
+                            IsMyMessage = false,
+                            AvatarText = GetAvatarText(GetSenderFromMessage(content)),
+                            AvatarColor = GetRandomColor(),
+                            ChatId = chatId
+                        };
+                    }
+                    else
+                    {
+                        return;
+                    }
+                }
+                else if (content.StartsWith("[IMAGE]:"))
+                {
+                    var parts = content.Substring(8).Split('|');
+                    if (parts.Length >= 2)
+                    {
+                        var fileName = parts[0];
+
+                        newMessage = new Message
+                        {
+                            Id = Guid.NewGuid().ToString(),
+                            Text = $"🖼 Изображение: {fileName}",
+                            Sender = GetSenderFromMessage(content),
+                            Time = DateTime.Now,
+                            IsMyMessage = false,
+                            AvatarText = GetAvatarText(GetSenderFromMessage(content)),
+                            AvatarColor = GetRandomColor(),
+                            ChatId = chatId
+                        };
+                    }
+                    else
+                    {
+                        return;
+                    }
+                }
+                else
+                {
+                    // Обычное текстовое сообщение
+                    newMessage = new Message
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        Text = content,
+                        Sender = GetSenderFromMessage(content),
+                        Time = DateTime.Now,
+                        IsMyMessage = false,
+                        AvatarText = GetAvatarText(GetSenderFromMessage(content)),
+                        AvatarColor = GetRandomColor(),
+                        ChatId = chatId
+                    };
+                }
+
+                chat.Messages.Add(newMessage);
+                chat.LastMessage = newMessage.Text;
+                chat.LastMessageTime = newMessage.Time;
+                chat.UnreadCount++;
+
+                // Если чат открыт, обновляем сообщения
+                if (currentChat?.Id == chatId)
+                {
+                    ShowMessages(chat);
+                    chat.UnreadCount = 0;
+                }
+
+                UpdateChatsList();
+            });
+        }
+
+        // ОБНОВЛЕННЫЙ метод CreateMessageControl для отображения файлов
+        private Border CreateMessageControl(Message message)
+        {
+            var border = new Border
+            {
+                Style = (Style)FindResource("MessageBorderStyle"),
+                Tag = message,
+                Cursor = Cursors.Hand
+            };
+
+            // Добавляем обработчик клика для файлов/изображений
+            border.MouseLeftButtonUp += (s, e) =>
+            {
+                if (message.Text.Contains("📎 Файл:") || message.Text.Contains("🖼 Изображение:"))
+                {
+                    SaveFileToDisk(message, message.Text);
+                }
+            };
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Auto) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            // Аватар отправителя (только для чужих сообщений)
+            if (!message.IsMyMessage)
+            {
+                var avatarBorder = new Border
+                {
+                    Width = 32,
+                    Height = 32,
+                    CornerRadius = new CornerRadius(16),
+                    Background = message.AvatarColor,
+                    Margin = new Thickness(0, 0, 10, 0),
+                    VerticalAlignment = VerticalAlignment.Top
+                };
+
+                var avatarText = new TextBlock
+                {
+                    Text = message.AvatarText,
+                    Foreground = Brushes.White,
+                    FontSize = 12,
+                    FontWeight = FontWeights.Bold,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+
+                avatarBorder.Child = avatarText;
+                Grid.SetColumn(avatarBorder, 0);
+                grid.Children.Add(avatarBorder);
+            }
+
+            // Контент сообщения
+            var contentPanel = new StackPanel();
+            Grid.SetColumn(contentPanel, message.IsMyMessage ? 1 : 1);
+            if (!message.IsMyMessage)
+                Grid.SetColumnSpan(contentPanel, 2);
+
+            // Определяем тип сообщения
+            bool isFile = message.Text.Contains("📎 Файл:");
+            bool isImage = message.Text.Contains("🖼 Изображение:");
+
+            if (isFile || isImage)
+            {
+                // Стилизованный блок для файла/изображения
+                var fileBorder = new Border
+                {
+                    Background = message.IsMyMessage ?
+                        new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)) :
+                        new SolidColorBrush(Color.FromArgb(20, 0, 0, 0)),
+                    CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(12),
+                    Margin = new Thickness(0, 0, 0, 5)
+                };
+
+                var fileStack = new StackPanel();
+
+                var iconText = new TextBlock
+                {
+                    Text = isFile ? "📎" : "🖼",
+                    FontSize = 24,
+                    Margin = new Thickness(0, 0, 0, 8),
+                    HorizontalAlignment = HorizontalAlignment.Center
+                };
+                fileStack.Children.Add(iconText);
+
+                var messageText = new TextBlock
+                {
+                    Text = message.Text,
+                    Foreground = message.IsMyMessage ? Brushes.White : Brushes.Black,
+                    FontSize = 14,
+                    TextWrapping = TextWrapping.Wrap,
+                    TextAlignment = TextAlignment.Center
+                };
+                fileStack.Children.Add(messageText);
+
+                var hintText = new TextBlock
+                {
+                    Text = "Нажмите для сохранения",
+                    Foreground = message.IsMyMessage ?
+                        new SolidColorBrush(Color.FromArgb(150, 255, 255, 255)) :
+                        new SolidColorBrush(Color.FromArgb(150, 0, 0, 0)),
+                    FontSize = 11,
+                    FontStyle = FontStyles.Italic,
+                    Margin = new Thickness(0, 8, 0, 0),
+                    TextAlignment = TextAlignment.Center
+                };
+                fileStack.Children.Add(hintText);
+
+                fileBorder.Child = fileStack;
+                contentPanel.Children.Add(fileBorder);
+            }
+            else
+            {
+                // Обычный текст сообщения
+                var textBlock = new TextBlock
+                {
+                    Text = message.Text,
+                    Foreground = message.IsMyMessage ? Brushes.White : Brushes.Black,
+                    FontSize = 14,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 4)
+                };
+                contentPanel.Children.Add(textBlock);
+            }
+
+            // Время отправки
+            var timePanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = message.IsMyMessage ? HorizontalAlignment.Right : HorizontalAlignment.Left
+            };
+
+            var timeText = new TextBlock
+            {
+                Text = message.Time.ToString("HH:mm"),
+                FontSize = 11,
+                Foreground = message.IsMyMessage ?
+                    new SolidColorBrush(Color.FromArgb(180, 255, 255, 255)) :
+                    new SolidColorBrush(Color.FromArgb(180, 102, 102, 102))
+            };
+            timePanel.Children.Add(timeText);
+
+            // Галочка прочтения (только для моих сообщений)
+            if (message.IsMyMessage)
+            {
+                var readIcon = new TextBlock
+                {
+                    Text = "✓✓",
+                    FontSize = 11,
+                    Foreground = new SolidColorBrush(Color.FromArgb(180, 255, 255, 255)),
+                    Margin = new Thickness(4, 0, 0, 0)
+                };
+                timePanel.Children.Add(readIcon);
+            }
+
+            contentPanel.Children.Add(timePanel);
+            grid.Children.Add(contentPanel);
+
+            border.Child = grid;
+            return border;
+        }
+
+
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+public static class FileManager
+    {
+        private static readonly string AppDataPath = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "NikitaMessenger",
+            "Files");
+
+        private static readonly string ImagesPath = System.IO.Path.Combine(AppDataPath, "Images");
+        private static readonly string FilesPath = System.IO.Path.Combine(AppDataPath, "Documents");
+
+        static FileManager()
+        {
+            Directory.CreateDirectory(ImagesPath);
+            Directory.CreateDirectory(FilesPath);
+        }
+
+        public static string SaveImage(string sourcePath)
+        {
+            try
+            {
+                string fileName = $"img_{Guid.NewGuid():N}{System.IO.Path.GetExtension(sourcePath)}";
+                string destinationPath = System.IO.Path.Combine(ImagesPath, fileName);
+
+                File.Copy(sourcePath, destinationPath, true);
+                return destinationPath;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка сохранения изображения: {ex.Message}");
+                return null;
+            }
+        }
+
+        public static string SaveFile(string sourcePath)
+        {
+            try
+            {
+                string fileName = System.IO.Path.GetFileName(sourcePath);
+                string destinationPath = System.IO.Path.Combine(FilesPath, fileName);
+
+                int counter = 1;
+                while (File.Exists(destinationPath))
+                {
+                    string nameWithoutExt = System.IO.Path.GetFileNameWithoutExtension(fileName);
+                    string ext = System.IO.Path.GetExtension(fileName);
+                    fileName = $"{nameWithoutExt}_{counter}{ext}";
+                    destinationPath = System.IO.Path.Combine(FilesPath, fileName);
+                    counter++;
+                }
+
+                File.Copy(sourcePath, destinationPath, true);
+                return destinationPath;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка сохранения файла: {ex.Message}");
+                return null;
+            }
+        }
+
+        public static void OpenFile(string filePath)
+        {
+            try
+            {
+                if (File.Exists(filePath))
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = filePath,
+                        UseShellExecute = true
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка открытия файла: {ex.Message}");
+            }
+        }
+
+        public static void OpenContainingFolder(string filePath)
+        {
+            try
+            {
+                if (File.Exists(filePath))
+                {
+                    System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{filePath}\"");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка открытия папки: {ex.Message}");
+            }
+        }
+
+        public static long GetFileSize(string filePath)
+        {
+            try
+            {
+                if (File.Exists(filePath))
+                {
+                    return new FileInfo(filePath).Length;
+                }
+            }
+            catch
+            {
+                // Игнорируем ошибки
+            }
+            return 0;
+        }
+
+        public static string FormatFileSize(long bytes)
+        {
+            if (bytes <= 0) return "0 B";
+
+            string[] sizes = { "B", "KB", "MB", "GB" };
+            int order = 0;
+            double len = bytes;
+
+            while (len >= 1024 && order < sizes.Length - 1)
+            {
+                order++;
+                len /= 1024;
+            }
+
+            return $"{len:0.#} {sizes[order]}";
+        }
+
+        public static string GetFileIcon(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName)) return "📄";
+
+            var ext = System.IO.Path.GetExtension(fileName)?.ToLower();
+            return ext switch
+            {
+                ".pdf" => "📕",
+                ".doc" or ".docx" => "📘",
+                ".xls" or ".xlsx" => "📊",
+                ".ppt" or ".pptx" => "📽",
+                ".zip" or ".rar" or ".7z" => "🗜",
+                ".exe" => "⚙",
+                ".mp3" or ".wav" or ".flac" => "🎵",
+                ".mp4" or ".avi" or ".mkv" => "🎬",
+                ".jpg" or ".jpeg" or ".png" or ".bmp" or ".gif" => "🖼",
+                ".txt" => "📝",
+                _ => "📄"
+            };
+        }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 }

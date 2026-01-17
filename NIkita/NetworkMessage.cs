@@ -1,18 +1,18 @@
 ﻿using System;
 using System.Text.Json.Serialization;
 
-namespace NikitaMicrosoft
+namespace NikitaMessenger
 {
     public class NetworkMessage
     {
-        public string Type { get; set; }          // Тип сообщения
-        public string SenderId { get; set; }      // ID отправителя
-        public string SenderName { get; set; }    // Имя отправителя
-        public string Content { get; set; }       // Содержимое
-        public string ChatId { get; set; }        // ID чата/комнаты
-        public string Data { get; set; }          // Дополнительные данные
+        public string Type { get; set; }
+        public string SenderId { get; set; }
+        public string SenderName { get; set; }
+        public string Content { get; set; }
+        public string ChatId { get; set; }
+        public string Data { get; set; }
 
         [JsonIgnore]
-        public DateTime Timestamp { get; set; }   // Время отправки
+        public DateTime Timestamp { get; set; }
     }
 }

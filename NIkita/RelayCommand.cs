@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Windows.Input;
 
-namespace NikitaMicrosoft
+namespace NikitaMessenger
 {
     public class RelayCommand : ICommand
     {
