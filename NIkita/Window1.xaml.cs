@@ -1,36 +1,37 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Shapes;
+﻿using System.Windows;
 
 namespace NIkita
 {
-    public partial class InputDialog : Window
+    public partial class UsernameDialog : Window
     {
-        public string Answer => InputBox.Text;
+        public string Username { get; private set; }
 
-        public InputDialog(string title, string prompt)
+        public UsernameDialog()
         {
             InitializeComponent();
-            Title = title;
+            Loaded += (s, e) => UsernameTextBox.Focus();
         }
 
-        private void Button_Click(object sender, RoutedEventArgs e)
+        private void OkButton_Click(object sender, RoutedEventArgs e)
         {
-            if (!string.IsNullOrWhiteSpace(InputBox.Text))
+            if (!string.IsNullOrWhiteSpace(UsernameTextBox.Text))
             {
+                Username = UsernameTextBox.Text.Trim();
                 DialogResult = true;
                 Close();
             }
+            else
+            {
+                MessageBox.Show("Введите имя пользователя",
+                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+                UsernameTextBox.Focus();
+            }
+        }
+
+        private void CancelButton_Click(object sender, RoutedEventArgs e)
+        {
+            DialogResult = false;
+            Close();
         }
     }
 }

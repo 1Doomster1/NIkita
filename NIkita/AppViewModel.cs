@@ -8,10 +8,12 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Input;
 using Microsoft.Win32;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Linq;
 using NIkita;
 
-
-namespace NikitaMicrosoft
+namespace NikitaMessenger
 {
     public class AppViewModel : INotifyPropertyChanged
     {
@@ -20,11 +22,12 @@ namespace NikitaMicrosoft
         private Thread _receiveThread;
         private string _username;
         private bool _isConnected;
-        private Chat _selectedChat;
+        private ChatModel _selectedChat;
         private string _messageText;
         private string _searchText;
         private string _typingStatus;
         private bool _isTyping;
+        private string _avatarPath;
 
         public event EventHandler MessageAdded;
 
@@ -51,7 +54,7 @@ namespace NikitaMicrosoft
 
         public bool IsChatSelected => SelectedChat != null;
 
-        public Chat SelectedChat
+        public ChatModel SelectedChat
         {
             get => _selectedChat;
             set
@@ -109,10 +112,20 @@ namespace NikitaMicrosoft
             }
         }
 
+        public string AvatarPath
+        {
+            get => _avatarPath;
+            set
+            {
+                _avatarPath = value;
+                OnPropertyChanged();
+            }
+        }
+
         public bool CanSendMessage => !string.IsNullOrWhiteSpace(MessageText) && SelectedChat != null;
 
-        public ObservableCollection<Chat> Chats { get; } = new ObservableCollection<Chat>();
-        public ObservableCollection<User> OnlineUsers { get; } = new ObservableCollection<User>();
+        public ObservableCollection<ChatModel> Chats { get; } = new ObservableCollection<ChatModel>();
+        public ObservableCollection<UserModel> OnlineUsers { get; } = new ObservableCollection<UserModel>();
 
         public ICommand ConnectCommand { get; }
         public ICommand DisconnectCommand { get; }
@@ -123,6 +136,7 @@ namespace NikitaMicrosoft
         public ICommand AttachImageCommand { get; }
         public ICommand DownloadFileCommand { get; }
         public ICommand StartPrivateChatCommand { get; }
+        public ICommand ChangeAvatarCommand { get; }
 
         private Timer _typingTimer;
 
@@ -138,27 +152,53 @@ namespace NikitaMicrosoft
             AttachFileCommand = new RelayCommand(AttachFile);
             AttachImageCommand = new RelayCommand(AttachImage);
             DownloadFileCommand = new RelayCommand<Message>(DownloadFile);
-            StartPrivateChatCommand = new RelayCommand<User>(StartPrivateChat);
+            StartPrivateChatCommand = new RelayCommand<UserModel>(StartPrivateChat);
+            ChangeAvatarCommand = new RelayCommand(ChangeAvatar);
 
-            // Создаем тестовые данные
-            InitializeTestData(context);
+            InitializeTestData();
         }
 
         private void InitializeTestData(NikitaDbContext context)
         {
+            // Загружаем сохраненный аватар
+            try
+            {
+                if (File.Exists("avatar.txt"))
+                {
+                    AvatarPath = File.ReadAllText("avatar.txt");
+                }
+            }
+            catch { }
 
+            var chat1 = new ChatModel
+            {
+                Id = "1",
+                Name = "Алексей",
+                LastMessage = "Привет! Как дела?",
+                LastMessageTime = DateTime.Now.AddMinutes(-30),
+                IsOnline = true,
+                UnreadCount = 2
+            };
 
-            // Тестовые сообщения для первого чата
-            //var message1 = new Message
-            //{
-            //    Id = "1",
-            //    Sender = "Алексей",
-            //    Content = "Привет!",
-            //    Timestamp = DateTime.Now.AddMinutes(-45),
-            //    IsMyMessage = false,
-            //    Type = MessageType.Text,
-            //    Status = MessageStatus.Read
-            //};
+            var chat2 = new ChatModel
+            {
+                Id = "2",
+                Name = "Мария",
+                LastMessage = "Отправлю файл завтра",
+                LastMessageTime = DateTime.Now.AddHours(-2),
+                IsOnline = false,
+                UnreadCount = 0
+            };
+
+            var chat3 = new ChatModel
+            {
+                Id = "general",
+                Name = "Общий чат",
+                LastMessage = "Добро пожаловать в общий чат!",
+                LastMessageTime = DateTime.Now.AddDays(-1),
+                IsOnline = true,
+                UnreadCount = 5
+            };
 
             //var message2 = new Message
             //{
@@ -197,15 +237,16 @@ namespace NikitaMicrosoft
             //    Messages = {message2}
             //};
 
-            //var chat3 = new Chat
-            //{
-            //    Id = "3",
-            //    Name = "Общий чат",
-            //    LastMessage = "Добро пожаловать в общий чат!",
-            //    LastMessageTime = DateTime.Now.AddDays(-1),
-            //    IsOnline = true,
-            //    UnreadCount = 5
-            //};
+            chat1.Messages.Add(new Message
+            {
+                Id = "1",
+                Sender = "Алексей",
+                Content = "Привет!",
+                Timestamp = DateTime.Now.AddMinutes(-45),
+                IsMyMessage = false,
+                Type = MessageType.Text,
+                Status = MessageStatus.Read
+            });
 
             //context.chats.Add(chat1);
             //context.chats.Add(chat2);
@@ -216,17 +257,12 @@ namespace NikitaMicrosoft
                 Chats.Add(chat);
             }
 
-            // Тестовые онлайн пользователи
-            //context.users.Add(new User { Id = "1", Username = "Алексей", IsOnline = true });
-            //context.users.Add(new User { Id = "2", Username = "Мария", IsOnline = false });
-            //context.users.Add(new User { Id = "3", Username = "Иван", IsOnline = true });
-            //context.users.Add(new User { Id = "4", Username = "Ольга", IsOnline = true });
-            //context.users.Add(new User { Id = "5", Username = "Дмитрий", IsOnline = false });
-            //context.SaveChanges();
-            foreach(var user in context.users)
-            {
-                OnlineUsers.Add(user);
-            }
+            // Тестовые пользователи
+            OnlineUsers.Add(new UserModel { Id = "1", Username = "Алексей", IsOnline = true });
+            OnlineUsers.Add(new UserModel { Id = "2", Username = "Мария", IsOnline = false });
+            OnlineUsers.Add(new UserModel { Id = "3", Username = "Иван", IsOnline = true });
+            OnlineUsers.Add(new UserModel { Id = "4", Username = "Ольга", IsOnline = true });
+            OnlineUsers.Add(new UserModel { Id = "5", Username = "Дмитрий", IsOnline = false });
         }
 
         public async Task ConnectToServerAsync()
@@ -270,6 +306,9 @@ namespace NikitaMicrosoft
                 _receiveThread?.Abort();
                 _stream?.Close();
                 _client?.Close();
+
+                // Сохраняем аватар перед выходом
+                SaveAvatar();
             }
             catch (Exception ex)
             {
@@ -278,7 +317,7 @@ namespace NikitaMicrosoft
             }
         }
 
-        private async Task SendMessageAsync(NikitaDbContext context)
+        private async Task SendMessageAsync()
         {
             if (string.IsNullOrWhiteSpace(MessageText) || SelectedChat == null)
                 return;
@@ -295,23 +334,21 @@ namespace NikitaMicrosoft
             };
 
             SelectedChat.Messages.Add(message);
-            context.messages.Add(message);
-            context.SaveChanges();
             SelectedChat.LastMessage = MessageText;
             SelectedChat.LastMessageTime = DateTime.Now;
 
             MessageAdded?.Invoke(this, EventArgs.Empty);
             MessageText = "";
 
-            // Отправляем на сервер
             if (IsConnected && _stream != null)
             {
                 var networkMessage = new NetworkMessage
                 {
-                    Type = "message",
+                    Type = SelectedChat.Name == "Общий чат" ? "message" : "private_message",
                     SenderId = Username,
+                    SenderName = Username,
                     Content = message.Content,
-                    ChatId = SelectedChat.Id,
+                    ChatId = SelectedChat.Name == "Общий чат" ? "general" : SelectedChat.Name,
                     Timestamp = DateTime.Now
                 };
 
@@ -326,20 +363,17 @@ namespace NikitaMicrosoft
             {
                 var chatName = dialog.Answer;
 
-                var newChat = new Chat
+                var newChat = new ChatModel
                 {
                     Id = Guid.NewGuid().ToString(),
                     Name = chatName,
                     LastMessage = "Нет сообщений",
                     LastMessageTime = DateTime.Now,
-                    IsOnline = true,
-                    UnreadCount = 0,
-                    Messages = {}
+                    IsOnline = false,
+                    UnreadCount = 0
                 };
 
                 Chats.Insert(0, newChat);
-                context.chats.Add(newChat);
-                context.SaveChanges();
                 SelectedChat = newChat;
             }
         }
@@ -453,7 +487,7 @@ namespace NikitaMicrosoft
             }
         }
 
-        private void StartPrivateChat(User user)
+        private void StartPrivateChat(UserModel user)
         {
             var existingChat = Chats.FirstOrDefault(c => c.Name == user.Username);
 
@@ -463,7 +497,7 @@ namespace NikitaMicrosoft
                 return;
             }
 
-            var newChat = new Chat
+            var newChat = new ChatModel
             {
                 Id = Guid.NewGuid().ToString(),
                 Name = user.Username,
@@ -477,6 +511,45 @@ namespace NikitaMicrosoft
             SelectedChat = newChat;
         }
 
+        private void ChangeAvatar()
+        {
+            var dialog = new OpenFileDialog
+            {
+                Title = "Выберите аватар",
+                Filter = "Изображения (*.jpg;*.jpeg;*.png;*.bmp;*.gif)|*.jpg;*.jpeg;*.png;*.bmp;*.gif",
+                Multiselect = false
+            };
+
+            if (dialog.ShowDialog() == true)
+            {
+                try
+                {
+                    AvatarPath = dialog.FileName;
+                    SaveAvatar();
+
+                    MessageBox.Show("Аватар успешно изменен!", "Успех",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Ошибка при загрузке аватара: {ex.Message}", "Ошибка",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+        }
+
+        private void SaveAvatar()
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(AvatarPath))
+                {
+                    File.WriteAllText("avatar.txt", AvatarPath);
+                }
+            }
+            catch { }
+        }
+
         private void SendTypingStatus(bool isTyping)
         {
             if (IsConnected && SelectedChat != null && _stream != null)
@@ -487,7 +560,8 @@ namespace NikitaMicrosoft
                 {
                     Type = "typing",
                     SenderId = Username,
-                    ChatId = SelectedChat.Id,
+                    SenderName = Username,
+                    ChatId = SelectedChat.Name,
                     Content = isTyping ? "typing" : "stopped",
                     Timestamp = DateTime.Now
                 };
@@ -522,7 +596,12 @@ namespace NikitaMicrosoft
                     if (bytesRead == 0) break;
 
                     var json = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                    await ProcessReceivedMessageAsync(json);
+                    var messages = json.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+                    foreach (var message in messages)
+                    {
+                        await ProcessReceivedMessageAsync(message);
+                    }
                 }
             }
             catch (Exception ex)
@@ -550,6 +629,7 @@ namespace NikitaMicrosoft
                     switch (message.Type)
                     {
                         case "message":
+                        case "public_message":
                             HandleReceivedMessage(message);
                             break;
                         case "private_message":
@@ -560,9 +640,6 @@ namespace NikitaMicrosoft
                             break;
                         case "users_list":
                             UpdateOnlineUsers(message.Content);
-                            break;
-                        case "chats_list":
-                            UpdateChatsList(message.Content);
                             break;
                         case "system_message":
                             ShowSystemMessage(message.Content);
@@ -581,16 +658,61 @@ namespace NikitaMicrosoft
 
         private void HandleReceivedMessage(NetworkMessage networkMessage)
         {
-            var chat = Chats.FirstOrDefault(c => c.Id == networkMessage.ChatId);
+            var chat = Chats.FirstOrDefault(c => c.Id == networkMessage.ChatId ||
+                (c.Name == "Общий чат" && networkMessage.ChatId == "general"));
+
+            if (chat == null && networkMessage.SenderName != Username)
+            {
+                chat = new ChatModel
+                {
+                    Id = networkMessage.ChatId ?? Guid.NewGuid().ToString(),
+                    Name = networkMessage.ChatId == "general" ? "Общий чат" : networkMessage.SenderName,
+                    IsOnline = true
+                };
+                Chats.Insert(0, chat);
+            }
+
+            if (chat != null)
+            {
+                var message = new Message
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    Sender = networkMessage.SenderName,
+                    Content = networkMessage.Content,
+                    Timestamp = networkMessage.Timestamp,
+                    IsMyMessage = networkMessage.SenderName == Username,
+                    Type = MessageType.Text,
+                    Status = MessageStatus.Delivered
+                };
+
+                chat.Messages.Add(message);
+                chat.LastMessage = networkMessage.Content;
+                chat.LastMessageTime = networkMessage.Timestamp;
+
+                if (chat != SelectedChat)
+                {
+                    chat.UnreadCount++;
+                }
+
+                MessageAdded?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
+        private void HandlePrivateMessage(NetworkMessage networkMessage)
+        {
+            if (networkMessage.SenderName == Username) return;
+
+            var chat = Chats.FirstOrDefault(c => c.Name == networkMessage.SenderName);
+
             if (chat == null)
             {
-                chat = new Chat
+                chat = new ChatModel
                 {
-                    Id = networkMessage.ChatId,
+                    Id = Guid.NewGuid().ToString(),
                     Name = networkMessage.SenderName,
                     IsOnline = true
                 };
-                Chats.Add(chat);
+                Chats.Insert(0, chat);
             }
 
             var message = new Message
@@ -611,45 +733,7 @@ namespace NikitaMicrosoft
             if (chat != SelectedChat)
             {
                 chat.UnreadCount++;
-            }
-
-            MessageAdded?.Invoke(this, EventArgs.Empty);
-        }
-
-        private void HandlePrivateMessage(NetworkMessage networkMessage)
-        {
-            var senderName = networkMessage.SenderName;
-            var chat = Chats.FirstOrDefault(c => c.Name == senderName);
-
-            if (chat == null)
-            {
-                chat = new Chat
-                {
-                    Id = Guid.NewGuid().ToString(),
-                    Name = senderName,
-                    IsOnline = true
-                };
-                Chats.Add(chat);
-            }
-
-            var message = new Message
-            {
-                Id = Guid.NewGuid().ToString(),
-                Sender = senderName,
-                Content = networkMessage.Content,
-                Timestamp = networkMessage.Timestamp,
-                IsMyMessage = false,
-                Type = MessageType.Text,
-                Status = MessageStatus.Delivered
-            };
-
-            chat.Messages.Add(message);
-            chat.LastMessage = networkMessage.Content;
-            chat.LastMessageTime = networkMessage.Timestamp;
-
-            if (chat != SelectedChat)
-            {
-                chat.UnreadCount++;
+                chat.IsOnline = true;
             }
 
             MessageAdded?.Invoke(this, EventArgs.Empty);
@@ -657,11 +741,11 @@ namespace NikitaMicrosoft
 
         private void HandleTypingStatus(NetworkMessage networkMessage)
         {
-            if (SelectedChat != null && SelectedChat.Id == networkMessage.ChatId)
+            if (SelectedChat != null && SelectedChat.Name == networkMessage.SenderName)
             {
-                TypingStatus = networkMessage.Content == "typing"
-                    ? $"{networkMessage.SenderName} печатает..."
-                    : "";
+                networkMessage.Content = "typing";
+                SelectedChat.TypingStatus = networkMessage.Content == "typing" ?
+                    $"{networkMessage.SenderName} печатает..." : "";
             }
         }
 
@@ -669,35 +753,20 @@ namespace NikitaMicrosoft
         {
             try
             {
-                var users = JsonSerializer.Deserialize<User[]>(usersJson);
+                var users = JsonSerializer.Deserialize<UserModel[]>(usersJson);
                 OnlineUsers.Clear();
 
                 foreach (var user in users)
                 {
-                    OnlineUsers.Add(user);
+                    if (user.Username != Username)
+                    {
+                        OnlineUsers.Add(user);
+                    }
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Ошибка обновления пользователей: {ex.Message}");
-            }
-        }
-
-        private void UpdateChatsList(string chatsJson)
-        {
-            try
-            {
-                var chats = JsonSerializer.Deserialize<Chat[]>(chatsJson);
-                Chats.Clear();
-
-                foreach (var chat in chats)
-                {
-                    Chats.Add(chat);
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Ошибка обновления чатов: {ex.Message}");
             }
         }
 
@@ -707,7 +776,7 @@ namespace NikitaMicrosoft
                 MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
-        public void SelectChat(Chat chat)
+        public void SelectChat(ChatModel chat)
         {
             SelectedChat = chat;
         }

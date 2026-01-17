@@ -3,10 +3,9 @@ using System.ComponentModel;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.IO;
 using System.Runtime.CompilerServices;
-using System.Windows;
 using System.Windows.Media;
 
-namespace NikitaMicrosoft
+namespace NikitaMessenger
 {
     public enum MessageType
     {
@@ -27,19 +26,12 @@ namespace NikitaMicrosoft
         private string _id;
         private string _sender;
         private string _content;
-        private DateTime _time;
+        private DateTime _timestamp;
         private bool _isMyMessage;
         private MessageType _type;
         private MessageStatus _status;
         private string _imagePath;
         private string _filePath;
-
-        [NotMapped]
-        public string FilePath
-        {
-            get { return _filePath; }
-            set { _filePath = value; }
-        }
 
         public string Id
         {
@@ -61,8 +53,8 @@ namespace NikitaMicrosoft
 
         public DateTime Timestamp
         {
-            get { return _time; }
-            set { _time = value; OnPropertyChanged(); }
+            get { return _timestamp; }
+            set { _timestamp = value; OnPropertyChanged(); }
         }
 
         public bool IsMyMessage
@@ -82,14 +74,19 @@ namespace NikitaMicrosoft
             get { return _status; }
             set { _status = value; OnPropertyChanged(); }
         }
-        [NotMapped]
+
         public string ImagePath
         {
             get { return _imagePath; }
             set { _imagePath = value; OnPropertyChanged(); }
         }
 
-        // Свойства для привязки без конвертеров
+        public string FilePath
+        {
+            get { return _filePath; }
+            set { _filePath = value; OnPropertyChanged(); }
+        }
+
         public string TimeString => Timestamp.ToString("HH:mm");
         public string DateString => Timestamp.ToString("dd.MM.yyyy");
 
@@ -111,11 +108,11 @@ namespace NikitaMicrosoft
         {
             get
             {
-                if (!string.IsNullOrEmpty(ImagePath) && File.Exists(ImagePath))
+                if (!string.IsNullOrEmpty(FilePath) && File.Exists(FilePath))
                 {
                     try
                     {
-                        var info = new FileInfo(ImagePath);
+                        var info = new FileInfo(FilePath);
                         long bytes = info.Length;
                         string[] sizes = { "B", "KB", "MB", "GB" };
                         int order = 0;
