@@ -1,6 +1,7 @@
 ﻿using System;
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows;
@@ -34,12 +35,6 @@ namespace NikitaMicrosoft
         private string _imagePath;
         private string _filePath;
 
-        [NotMapped]
-        public string FilePath
-        {
-            get { return _filePath; }
-            set { _filePath = value; }
-        }
 
         public string Id
         {
@@ -83,11 +78,19 @@ namespace NikitaMicrosoft
             set { _status = value; OnPropertyChanged(); }
         }
         [NotMapped]
+        public string FilePath
+        {
+            get { return _filePath; }
+            set { _filePath = value; }
+        }
+        [NotMapped]
         public string ImagePath
         {
             get { return _imagePath; }
             set { _imagePath = value; OnPropertyChanged(); }
         }
+        //[DatabaseGenerated(DatabaseGeneratedOption.Computed)]
+        public string ChatId { get; set; }
 
         // Свойства для привязки без конвертеров
         public string TimeString => Timestamp.ToString("HH:mm");

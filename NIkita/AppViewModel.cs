@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Input;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Win32;
 using NIkita;
 
@@ -135,8 +136,8 @@ namespace NikitaMicrosoft
             SendMessageCommand = new RelayCommand(async () => await SendMessageAsync(context), () => CanSendMessage);
             NewChatCommand = new RelayCommand(() => CreateNewChat(context));
             ClearSearchCommand = new RelayCommand(() => SearchText = "");
-            AttachFileCommand = new RelayCommand(AttachFile);
-            AttachImageCommand = new RelayCommand(AttachImage);
+            AttachFileCommand = new RelayCommand(() => AttachFile(context));
+            AttachImageCommand = new RelayCommand(() => AttachImage(context));
             DownloadFileCommand = new RelayCommand<Message>(DownloadFile);
             StartPrivateChatCommand = new RelayCommand<User>(StartPrivateChat);
 
@@ -146,86 +147,26 @@ namespace NikitaMicrosoft
 
         private void InitializeTestData(NikitaDbContext context)
         {
-
-
-            // Тестовые сообщения для первого чата
-            //var message1 = new Message
-            //{
-            //    Id = "1",
-            //    Sender = "Алексей",
-            //    Content = "Привет!",
-            //    Timestamp = DateTime.Now.AddMinutes(-45),
-            //    IsMyMessage = false,
-            //    Type = MessageType.Text,
-            //    Status = MessageStatus.Read
-            //};
-
-            //var message2 = new Message
-            //{
-            //    Id = "2",
-            //    Sender = Username,
-            //    Content = "Привет! Как дела?",
-            //    Timestamp = DateTime.Now.AddMinutes(-30),
-            //    IsMyMessage = true,
-            //    Type = MessageType.Text,
-            //    Status = MessageStatus.Delivered
-            //};
-
-            //context.messages.AddRange(message1, message2);
-
-
-            //// Тестовые чаты
-            //var chat1 = new Chat
-            //{
-            //    Id = "1",
-            //    Name = "Алексей",
-            //    LastMessage = "Привет! Как дела?",
-            //    LastMessageTime = DateTime.Now.AddMinutes(-30),
-            //    IsOnline = true,
-            //    UnreadCount = 2,
-            //    Messages = {message1}
-            //};
-
-            //var chat2 = new Chat
-            //{
-            //    Id = "2",
-            //    Name = "Мария",
-            //    LastMessage = "Отправлю файл завтра",
-            //    LastMessageTime = DateTime.Now.AddHours(-2),
-            //    IsOnline = false,
-            //    UnreadCount = 0,
-            //    Messages = {message2}
-            //};
-
-            //var chat3 = new Chat
-            //{
-            //    Id = "3",
-            //    Name = "Общий чат",
-            //    LastMessage = "Добро пожаловать в общий чат!",
-            //    LastMessageTime = DateTime.Now.AddDays(-1),
-            //    IsOnline = true,
-            //    UnreadCount = 5
-            //};
-
-            //context.chats.Add(chat1);
-            //context.chats.Add(chat2);
-            //context.chats.Add(chat3);
-            //context.SaveChanges();
             foreach (var chat in context.chats)
             {
                 Chats.Add(chat);
             }
-
-            // Тестовые онлайн пользователи
-            //context.users.Add(new User { Id = "1", Username = "Алексей", IsOnline = true });
-            //context.users.Add(new User { Id = "2", Username = "Мария", IsOnline = false });
-            //context.users.Add(new User { Id = "3", Username = "Иван", IsOnline = true });
-            //context.users.Add(new User { Id = "4", Username = "Ольга", IsOnline = true });
-            //context.users.Add(new User { Id = "5", Username = "Дмитрий", IsOnline = false });
-            //context.SaveChanges();
-            foreach(var user in context.users)
+            foreach (var user in context.users)
             {
                 OnlineUsers.Add(user);
+            }
+            ObservableCollection<Message> messages = new ObservableCollection<Message>();
+            foreach (var m in context.messages)
+            {
+                messages.Add(m);
+            }
+            foreach (var m in messages) 
+            {
+                foreach (var c in Chats)
+                {
+                    if (m.ChatId == c.Id && !c.Messages.Contains(m))
+                        c.Messages.Add(m);
+                }
             }
         }
 
@@ -291,10 +232,11 @@ namespace NikitaMicrosoft
                 Timestamp = DateTime.Now,
                 IsMyMessage = true,
                 Type = MessageType.Text,
-                Status = MessageStatus.Sent
+                Status = MessageStatus.Sent,
+                ChatId = SelectedChat.Id
             };
 
-            SelectedChat.Messages.Add(message);
+            //SelectedChat.Messages.Add(message);
             context.messages.Add(message);
             context.SaveChanges();
             SelectedChat.LastMessage = MessageText;
@@ -344,7 +286,7 @@ namespace NikitaMicrosoft
             }
         }
 
-        private void AttachFile()
+        private void AttachFile(NikitaDbContext context)
         {
             var dialog = new OpenFileDialog
             {
@@ -369,10 +311,12 @@ namespace NikitaMicrosoft
                         IsMyMessage = true,
                         Type = MessageType.File,
                         Status = MessageStatus.Sent,
-                        FilePath = filePath
+                        FilePath = filePath,
+                        ChatId = SelectedChat.Id
                     };
 
-                    SelectedChat.Messages.Add(message);
+                    //SelectedChat.Messages.Add(message);
+                    //context.messages.Add(message);
                     SelectedChat.LastMessage = $"Файл: {fileName}";
                     SelectedChat.LastMessageTime = DateTime.Now;
 
@@ -381,7 +325,7 @@ namespace NikitaMicrosoft
             }
         }
 
-        private void AttachImage()
+        private void AttachImage(NikitaDbContext context)
         {
             var dialog = new OpenFileDialog
             {
@@ -407,10 +351,13 @@ namespace NikitaMicrosoft
                         Type = MessageType.Image,
                         Status = MessageStatus.Sent,
                         ImagePath = imagePath,
-                        FilePath = imagePath
+                        FilePath = imagePath,
+                        ChatId = SelectedChat.Id
                     };
 
                     SelectedChat.Messages.Add(message);
+                    //context.messages.Add(message);
+                    //context.SaveChanges();
                     SelectedChat.LastMessage = $"Изображение: {fileName}";
                     SelectedChat.LastMessageTime = DateTime.Now;
 
