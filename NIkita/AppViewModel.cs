@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Input;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Win32;
 using System.Threading;
 using System.Threading.Tasks;
@@ -150,8 +151,8 @@ namespace NikitaMessenger
             SendMessageCommand = new RelayCommand(async () => await SendMessageAsync(context), () => CanSendMessage);
             NewChatCommand = new RelayCommand(() => CreateNewChat(context));
             ClearSearchCommand = new RelayCommand(() => SearchText = "");
-            AttachFileCommand = new RelayCommand(AttachFile);
-            AttachImageCommand = new RelayCommand(AttachImage);
+            AttachFileCommand = new RelayCommand(() => AttachFile(context));
+            AttachImageCommand = new RelayCommand(() => AttachImage(context));
             DownloadFileCommand = new RelayCommand<Message>(DownloadFile);
             StartPrivateChatCommand = new RelayCommand<UserModel>(StartPrivateChat);
             ChangeAvatarCommand = new RelayCommand(ChangeAvatar);
@@ -222,7 +223,8 @@ namespace NikitaMessenger
                 Timestamp = DateTime.Now,
                 IsMyMessage = true,
                 Type = MessageType.Text,
-                Status = MessageStatus.Sent
+                Status = MessageStatus.Sent,
+                ChatId = SelectedChat.Id
             };
 
             SelectedChat.Messages.Add(message);
@@ -270,7 +272,7 @@ namespace NikitaMessenger
             }
         }
 
-        private void AttachFile()
+        private void AttachFile(NikitaDbContext context)
         {
             var dialog = new OpenFileDialog
             {
@@ -295,10 +297,12 @@ namespace NikitaMessenger
                         IsMyMessage = true,
                         Type = MessageType.File,
                         Status = MessageStatus.Sent,
-                        FilePath = filePath
+                        FilePath = filePath,
+                        ChatId = SelectedChat.Id
                     };
 
-                    SelectedChat.Messages.Add(message);
+                    //SelectedChat.Messages.Add(message);
+                    //context.messages.Add(message);
                     SelectedChat.LastMessage = $"Файл: {fileName}";
                     SelectedChat.LastMessageTime = DateTime.Now;
 
@@ -307,7 +311,7 @@ namespace NikitaMessenger
             }
         }
 
-        private void AttachImage()
+        private void AttachImage(NikitaDbContext context)
         {
             var dialog = new OpenFileDialog
             {
