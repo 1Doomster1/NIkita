@@ -1,4 +1,5 @@
-﻿using System;
+﻿// Server.cs - обновленная версия
+using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
@@ -24,6 +25,7 @@ namespace SimpleChatServer
     {
         private TcpListener _listener;
         private List<Client> _clients = new List<Client>();
+        private Dictionary<string, Client> _connectedUsers = new Dictionary<string, Client>();
 
         public async Task StartAsync(int port = 8888)
         {
@@ -50,9 +52,50 @@ namespace SimpleChatServer
             }
         }
 
+        public void BroadcastToChat(string chatId, string message, Client exclude = null)
+        {
+            // В реальном приложении здесь была бы логика отправки в конкретный чат
+            // Сейчас просто отправляем всем
+            Broadcast(message, exclude);
+        }
+
+        public void UserConnected(string username, Client client)
+        {
+            _connectedUsers[username] = client;
+
+            // Уведомляем всех о новом пользователе
+            var notification = new NetworkMessage
+            {
+                Type = "user_connected",
+                Content = username,
+                Timestamp = DateTime.Now
+            };
+
+            Broadcast(JsonSerializer.Serialize(notification), client);
+        }
+
+        public void UserDisconnected(string username)
+        {
+            _connectedUsers.Remove(username);
+
+            // Уведомляем всех об отключении
+            var notification = new NetworkMessage
+            {
+                Type = "user_disconnected",
+                Content = username,
+                Timestamp = DateTime.Now
+            };
+
+            Broadcast(JsonSerializer.Serialize(notification));
+        }
+
         public void RemoveClient(Client client)
         {
             _clients.Remove(client);
+            if (!string.IsNullOrEmpty(client.Username))
+            {
+                UserDisconnected(client.Username);
+            }
         }
     }
 
@@ -117,17 +160,21 @@ namespace SimpleChatServer
                         await SendAsync(JsonSerializer.Serialize(new NetworkMessage
                         {
                             Type = "login_success",
-                            Content = Username
+                            Content = Username,
+                            Timestamp = DateTime.Now
                         }));
+                        _server.UserConnected(Username, this);
                         break;
 
                     case "message":
-                        Console.WriteLine($"{Username}: {message.Content}");
-                        _server.Broadcast(JsonSerializer.Serialize(new NetworkMessage
+                        Console.WriteLine($"{Username} to {message.ChatId}: {message.Content}");
+                        _server.BroadcastToChat(message.ChatId, JsonSerializer.Serialize(new NetworkMessage
                         {
                             Type = "message",
                             SenderName = Username,
-                            Content = message.Content
+                            Content = message.Content,
+                            ChatId = message.ChatId,
+                            Timestamp = DateTime.Now
                         }), this);
                         break;
                 }
